@@ -27,36 +27,40 @@ all copyrights lie with Falk Hildebrand (falk.hildebrand [ta] gmail dot com)
 
 //centralized library load
 
+
 #include <cstring>
-#include <stdio.h>
+//#include <stdio.h>
 #include <string>
-#include <string.h>
-#include <iostream>
+//#include <string.h>
 #include <fstream>
 #include <iomanip>
 
-#include <vector>
+//#include <vector>
 #include <list>
 #include <set>
 #include <unordered_map> 
+#include <unordered_set>
+#include <map>
 
 #include <omp.h>
 #include <future>
 
 
-#include <sys/types.h>
+//#include <sys/types.h>
 #include <sys/stat.h>
 #include <assert.h>
 #include <math.h>
 #include <fcntl.h>
-#include <algorithm> 
+//#include <algorithm> 
 
 #include "TimeProfile.hpp"
 
 #include <iostream>
-#include <stdio.h>
-#include <math.h>
-#include <limits>
+//#include <stdio.h>
+//#include <math.h>
+//#include <limits>
+
+
 
 
 

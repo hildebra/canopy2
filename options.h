@@ -29,10 +29,14 @@ public:
 	string output_cluster_profiles_file;
 	string output_cluster_prefix;
 	string sampleDistMatFile;//write out matrix of sample distances
+	string sampleDistLog;
 	string profile_measure_str;
 	string guide_matrix_file;
+	string refMB2;
+	int refMB2_maxGenes;
 	int num_threads;
 	PRECISIONT max_canopy_dist;
+	PRECISIONT max_canopy_dist_part;
 	PRECISIONT max_close_dist; //The value is hardcoded and the option to change it removed from CLI to not confuse users
 	PRECISIONT max_merge_dist;
 	PRECISIONT min_step_dist; //The value is hardcoded and the option to change it removed from CLI to not confuse users 

@@ -34,6 +34,8 @@ using namespace std;
 //using namespace boost::program_options;
 //using namespace boost::assign;
 
+
+
 ProfileMeasureType profile_measure;
 
 int main(int argc, char* argv[])
@@ -51,6 +53,8 @@ int main(int argc, char* argv[])
     TimeProfile time_profile;
     time_profile.start_timer("Total");
 
+	test_annoy();
+
 	options* opt = new options(argc, argv);
 
     //Prepare variables for command line input
@@ -64,6 +68,7 @@ int main(int argc, char* argv[])
 	string guide_matrix_file = opt->guide_matrix_file;
 	int num_threads = opt->num_threads;
 	PRECISIONT max_canopy_dist = opt->max_canopy_dist;
+	PRECISIONT max_canopy_dist_part = opt->max_canopy_dist_part;
 	const PRECISIONT max_close_dist = opt->max_close_dist;  //The value is hardcoded and the option to change it removed from CLI to not confuse users
 	PRECISIONT max_merge_dist = opt->max_merge_dist;
 	const PRECISIONT min_step_dist = opt->min_step_dist;  //The value is hardcoded and the option to change it removed from CLI to not confuse users 
@@ -294,8 +299,8 @@ int main(int argc, char* argv[])
         time_profile.stop_timer("Loading priority reads");
     }
 	vector<Point*> guidePoints;
-	time_profile.start_timer("Guide matrix");
 	if (guide_matrix_file != "") {
+		time_profile.start_timer("Guide matrix");
 		_log(logINFO) << "Reading guide matrix line by line";
 
 		std::ifstream point_file(guide_matrix_file);
@@ -312,13 +317,13 @@ int main(int argc, char* argv[])
 			guidePoints.push_back(pp);
 			die_if_true(terminate_called);
 		}
+		point_file.close();
 
 
 		_log(logINFO) << "";
 		_log(logINFO) << "numbers entries in guide matrix:\t " << guidePoints.size();
 		_log(logINFO) << "";
 		time_profile.stop_timer("Guide matrix");
-
 	}
 
     //
@@ -362,6 +367,7 @@ int main(int argc, char* argv[])
 	}
 	delete point_file;
     time_profile.stop_timer("Loading file and reading profiles"); _log(logINFO) << "";
+	readMB2preSet(opt, guidePoints, points);
 	
 	//rm autocorrelated samples..
 	bool autocorr_sample_filter = true;
@@ -412,13 +418,15 @@ int main(int argc, char* argv[])
     //Run Canopy Clustering
     //
     std::vector<shared_ptr<Canopy>> canopies;
+	bool guided = guidePoints.size() > 0;
 
-	if (guidePoints.size() > 0) {
+	if (guided) {
 		_log(logINFO) << "";
 		_log(logINFO) << "Calculating genes correlationg to guide profiles";
 		canopies = multi_core_run_correlations(filtered_points, guidePoints,
 			num_threads, max_canopy_dist,
 			show_progress_bar, time_profile,false);
+		_log(logINFO) << "Finished deep correlations";
 	}
 	else {
 		_log(logINFO) << "";
@@ -426,40 +434,41 @@ int main(int argc, char* argv[])
 		canopies = multi_core_run_clustering_on(filtered_points,
 			priority_read_names, opt, rmSmpls, sumRm,
 			time_profile);
+		_log(logINFO) << "Finished clustering";
 	}
-    _log(logINFO) << "Finished clustering";
 
 
     //
     //Filter out canopies
     //
 
-    if(cag_filter_min_sample_obs){
-        time_profile.start_timer("Filtering canopies by minimum number of sample detections");
-        filter_clusters_by_zero_medians(cag_filter_min_sample_obs, canopies);
-        _log(logINFO) << "Finished filtering for minimum number of sample detections, number of canopies:" << canopies.size();
-        time_profile.stop_timer("Filtering canopies by minimum number of sample detections");
-    }
+	if (!guided) {
+		if (cag_filter_min_sample_obs) {
+			time_profile.start_timer("Filtering canopies by minimum number of sample detections");
+			filter_clusters_by_zero_medians(cag_filter_min_sample_obs, canopies);
+			_log(logINFO) << "Finished filtering for minimum number of sample detections, number of canopies:" << canopies.size();
+			time_profile.stop_timer("Filtering canopies by minimum number of sample detections");
+		}
 
 
-    if(cag_filter_max_top3_sample_contribution< 0.99999){ //It's due to a double comparison
-        time_profile.start_timer("Filtering canopies by three sample signal contribution proportion");
-        cag_filter_max_top3_sample_contributions(cag_filter_max_top3_sample_contribution, canopies);
-        _log(logINFO) << "Finished filtering by three sample signal contribution proportion, number of canopies:" << canopies.size();
-        time_profile.stop_timer("Filtering canopies by three sample signal contribution proportion");
-    }
+		if (cag_filter_max_top3_sample_contribution < 0.99999) { //It's due to a double comparison
+			time_profile.start_timer("Filtering canopies by three sample signal contribution proportion");
+			cag_filter_max_top3_sample_contributions(cag_filter_max_top3_sample_contribution, canopies);
+			_log(logINFO) << "Finished filtering by three sample signal contribution proportion, number of canopies:" << canopies.size();
+			time_profile.stop_timer("Filtering canopies by three sample signal contribution proportion");
+		}
 
-    {
-        time_profile.start_timer("Filtering canopies by size");
-        filter_clusters_by_size(canopies);
-        _log(logINFO) << "Finished filtering by size(number of neighbours must be bigger than 1), number of canopies:" << canopies.size();
-        time_profile.stop_timer("Filtering canopies by size");
-    }
+		{
+			time_profile.start_timer("Filtering canopies by size");
+			filter_clusters_by_size(canopies);
+			_log(logINFO) << "Finished filtering by size(number of neighbours must be bigger than 1), number of canopies:" << canopies.size();
+			time_profile.stop_timer("Filtering canopies by size");
+		}
+	}
 
 	//from here on everything done wrt to clustering, restore the original size (samples)
 	if (sumRm > 0) {
 		_log(logPROGRESS) << "Expanding canopies to original sample size";
-
 		for (uint i = 0; i < canopies.size(); i++) {
 			canopies[i]->restore_rm(sumRm);
 		}
@@ -477,8 +486,7 @@ int main(int argc, char* argv[])
 	if (output_cluster_profiles_file != "") {
 		out_file2 = new ofstream(output_cluster_profiles_file.c_str(), ios::out | ios::trunc);
 	}
-	bool guided = guidePoints.size() > 0;
-	if (guided) {
+	if (!guided) {
 		sort(canopies.begin(), canopies.end(), compare_canopy_ptrs_by_canopy_size);
 	}
 	for (int i = 0; i < (int)canopies.size(); i++) {
@@ -486,7 +494,9 @@ int main(int argc, char* argv[])
 		canopies[i]->print2file(out_file, out_file2,opt,i, num_digits, guided);
 	}
 	(*out_file).close();
-	(*out_file2).close();
+	if (output_cluster_profiles_file != "") {
+		(*out_file2).close();
+	}
 
 
 	//partial correlations
@@ -496,7 +506,7 @@ int main(int argc, char* argv[])
 		_log(logINFO) << "Calculating genes PARTIALLY correlationg to guide profiles";
 
 		canopies_par = multi_core_run_correlations(filtered_points, guidePoints,
-			num_threads, max_canopy_dist, show_progress_bar, time_profile,true);
+			num_threads, max_canopy_dist_part, show_progress_bar, time_profile,true);
 	
 		ofstream *OF;
 		OF = new ofstream(output_clusters_partial_file_path.c_str(), ios::out | ios::trunc);

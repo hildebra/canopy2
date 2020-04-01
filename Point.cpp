@@ -542,6 +542,9 @@ PRECISIONT get_partial_distance_between_points(const Point* p1, const Point* p2)
 			* (n * squareSum_Y - sum_Y * sum_Y)));
 	//cout << corr << " "<< n<< " "<< n * squareSum_Y - sum_Y * sum_Y<<"X ";
 
+	if (dist < 0) {
+		int x = 0;
+	}
 
 	return dist;
 }

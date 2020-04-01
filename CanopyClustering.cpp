@@ -18,16 +18,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this software.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include <iostream>
-#include <fstream>
-#include <ctime>
-
-#include <algorithm>
-#include <unordered_set>
-#include <map>
-
-
-#include <omp.h>
 
 #include "Log.hpp"
 
@@ -36,6 +26,25 @@
 #include "Canopy.hpp"
 #include "Point.hpp"
 #include "CanopyClustering.hpp"
+
+//#include "annoy/annoylib.h"
+#include "annoy/kissrandom.h"
+
+
+void test_annoy(void) {
+	/*
+	cout << "test";
+	int f = 40; int n = 1000;
+	AnnoyIndex<int, double, Angular, Kiss32Random> t = AnnoyIndex<int, double, Angular, Kiss32Random>(f);
+	for (uint i = 0; i < n; i++) {
+		//vector<float> xx(5, 0.f);
+		double *vec = (double *)malloc(f * sizeof(double));
+		t.add_item(i, vec);
+	}
+	cout << "test";
+*/
+}
+
 
 shared_ptr<Canopy> create_canopy(Point* origin, vector< Point*>& points,
 	vector< Point*>& close_points, PRECISIONT max_neighbour_dist, PRECISIONT max_close_dist,
@@ -94,6 +103,7 @@ shared_ptr<Canopy> create_canopy(Point* origin, vector< Point*>& points,
 shared_ptr<Canopy> create_canopy_singl(Point* origin, const vector< Point*>& points,
 	PRECISIONT max_neighbour_dist, bool partial, int origin_i) {
 
+
 	std::vector< Point*> neighbours;
 	list<PRECISIONT> corrs;
 
@@ -115,7 +125,7 @@ shared_ptr<Canopy> create_canopy_singl(Point* origin, const vector< Point*>& poi
 	}
 
 	
-	shared_ptr<Canopy> cc = make_shared<Canopy>(origin,false); // first copy ori!
+	shared_ptr<Canopy> cc = make_shared<Canopy>(origin,0,false); // first copy ori!
 	cc->set_ori(origin_i);
 	if (neighbours.size()>0) {
 		//now set neighbor list
@@ -329,10 +339,10 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
     _log(logPROGRESS) << "\t * pressing \"CTRL + C\" in this terminal";
     _log(logPROGRESS) << "";
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "TemplateArgumentsIssues" //Clion is messing up, the set declaration is fine
+//#pragma clang diagnostic push
+//#pragma ide diagnostic ignored "TemplateArgumentsIssues" //Clion is messing up, the set declaration is fine
     std::unordered_set< Point*> marked_points;//Points that should not be investigated as origins
-#pragma clang diagnostic pop
+//#pragma clang diagnostic pop
     vector<unsigned int> canopy_size_per_origin_num;//Contains size of the canopy created from origin by it's number, so first origin gave canopy of size 5, second origin gave canopy of size 8 and so on
     int last_progress_displayed_at_num_points = 0;
 
@@ -588,13 +598,10 @@ std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& poi
 	int num_threads, PRECISIONT max_canopy_dist,
 	bool show_progress_bar, TimeProfile& time_profile, bool partial) {
 
-	_log(logINFO) << "";
-	_log(logINFO) << "Algorithm Parameters:";
-	_log(logINFO) << "max_canopy_dist:\t " << max_canopy_dist;
-	_log(logINFO) << "Guide profile:\t" << guides.size();
-
 	_log(logPROGRESS) << "";
 	_log(logPROGRESS) << "############ Deep Canopies ############";
+	_log(logINFO) << "max_canopy_dist:\t " << max_canopy_dist;
+	_log(logINFO) << "Guide profiles:\t" << guides.size();
 	_log(logPROGRESS) << "";
 
 	vector<unsigned int> canopy_size_per_origin_num;//Contains size of the canopy created from origin by it's number, so first origin gave canopy of size 5, second origin gave canopy of size 8 and so on
@@ -605,7 +612,11 @@ std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& poi
 	//
 	//Create canopies
 	//
-	time_profile.start_timer("ReClustering");
+	if (partial) {
+		time_profile.start_timer("partial Multi correlations");
+	}	else {
+		time_profile.start_timer("Multi correlations");
+	}
 
 	ofstream canopy_size_stats_file;
 
@@ -623,15 +634,17 @@ std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& poi
 			}
 		}
 		//actual correlations..
-		if (j >= num_threads) { j = 0; }
 		if (origin_i >= totalSteps) { break; }
+//		create_canopy_singl(guides[origin_i], points, max_canopy_dist, partial, origin_i);
+//		continue;
+		if (j >= num_threads) { j = 0; }
 		if (slots[j].inUse == true && slots[j].fut.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
 			slots[j].inUse = false;
 			shared_ptr<Canopy> cc = slots[j].fut.get();
 			canopy_vector[cc->get_ori()] = cc;
 		}
 		if (slots[j].inUse == false) {
-			//create_canopy_singl(origin, points, max_canopy_dist, partial)
+			//
 			slots[j].fut = async(std::launch::async, create_canopy_singl, guides[origin_i], ref(points), max_canopy_dist, partial, origin_i);
 			origin_i++;
 			slots[j].inUse = true;
@@ -686,7 +699,11 @@ std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& poi
 
 	}
 	*/
-	time_profile.stop_timer("ReClustering");
+	if (partial) {
+		time_profile.stop_timer("partial Multi correlations");
+	} else {
+		time_profile.stop_timer("Multi correlations");
+	}
 
 	
 	_log(logINFO) << "Number of all canopies: " << canopy_vector.size();
@@ -789,10 +806,6 @@ void filter(options * opt, TimeProfile time_profile, vector<Point*>& points,
 					}
 				}
 			}
-			if (use_spearman) {
-				points[i]->convert_to_rank();
-			}
-
 		}
 	}
 	if (input_filter_file != "") {
@@ -847,6 +860,82 @@ int handleRms(vector<Point*>& points, const vector<bool>& rm) {
 
 
 	return sumRm;
+}
+
+bool readMB2preSet(options*opt, vector<Point*>& GP, vector<Point*>& points){
+//this is like a guide matrix.. just needs to create the profile itself
+	if (opt->refMB2 == "") {
+		return false;
+	}
+	if (opt->guide_matrix_file != "") {
+		std::cerr << "Guide Matrix and MB2 file were both defined, this is not supported\n";
+		exit(82);
+	}
+	uint MaxNumGenes = (uint)opt->refMB2_maxGenes;
+	std::ifstream point_file(opt->refMB2);
+	if (!point_file) { std::cerr << "Can't open MB2 ref file\n"; exit(23); }
+	std::string line;
+
+	//create index for points vector
+	unordered_map<string, uint> p_idx;
+	for (size_t i = 0; i < points.size();i++) {
+		p_idx[points[i]->id] = i;
+	}
+
+	//store genes belonging to bin
+	string curBin = "";
+	//vector<string> curMem(0);
+	vector<Point*> pointColl(0);
+	int lcnt = 0;
+	bool use_spearman = opt->use_spearman;
+
+	while (std::getline(point_file, line)) {
+		lcnt++;
+		if (line.length() < 2) {
+			std::cerr << "break it\n";
+			break;
+		}
+		vector<string> xx = splitByCommas(line, '\t');
+		if (xx[0] != curBin) {
+			if (pointColl.size() > 0) {
+				Canopy canTmp = Canopy(pointColl, 0);
+				//create a canopy center for these points..
+				Point * pp = new Point(canTmp.center, 0);
+				if (use_spearman) { pp->convert_to_rank(); }
+				pp->seal();
+				pp->id = curBin;
+				GP.push_back(pp);
+			}
+			//reset
+			curBin = xx[0]; pointColl.clear();
+		}
+
+		if (pointColl.size() > MaxNumGenes) { continue; }
+		auto fr = p_idx.find(xx[1]);
+		if (fr == p_idx.end()) {
+			cerr << "Unknown gene in reference, that is not represented in gene matrix: " << xx[1] << line<< endl;
+			exit(363);
+		}
+		pointColl.push_back(points[fr->second]);
+		//curMem.push_back(xx[1]);
+		//other vars are currently irrelevant
+		die_if_true(terminate_called);
+	}
+
+	point_file.close();
+//add final canopy
+	Canopy canTmp = Canopy(pointColl, 0);
+	//create a canopy center for these points..
+	Point * pp = new Point(canTmp.center, 0);
+	if (use_spearman) { pp->convert_to_rank(); }
+	pp->seal();
+	pp->id = curBin;
+	GP.push_back(pp);
+
+
+	std::cerr << "line count: " << lcnt << endl;
+
+	return true;
 }
 
 //this routine scans for autocorrelated samples (and removes these)
@@ -953,6 +1042,9 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 	}
 	//write out matrix of sample correations (if requested)
 	writeMatrix(corrs, opt->sampleDistMatFile);
+	writeUsedSmpls(rm, opt->sampleDistLog);
+	
+	
 
 	time_profile.stop_timer("Input profiles filtering");
 	_log(logINFO) << "Removed " << cntRm << " sample due to correlation distance < " << bound;
@@ -963,6 +1055,20 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 	return(rm);
 }
 
+void writeUsedSmpls(vector<bool>& rm, string of) {
+	if (of == "") { return; }
+	ofstream out(of.c_str(), ios::out);
+	if (!out) {
+		cerr << "Can't write to " << of << endl;
+	}
+	out << "Removed Samples (index):\n";
+	for (size_t i = 0; i < rm.size(); i++) {
+		if (rm[i]) {
+			out << "\t" << i;
+		}
+	}
+	out.close();
+}
 void writeMatrix(vector<vector<PRECISIONT>>& mat, string of){
 	if (of == "") { return; }
 	ofstream out(of.c_str(), ios::out);

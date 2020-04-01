@@ -24,6 +24,7 @@
 
 #include "Point.hpp"
 
+
 using namespace std;
 
 
@@ -38,7 +39,7 @@ class Canopy {
         Canopy(Point* center_to_copy,  int deletedSmpls, bool = true);
 
         //Constructor - assigns the neighour points and creates new point for center (representing canopy profile) 
-        Canopy(vector< Point*> neighbours, int);
+        Canopy(vector< Point*>& neighbours, int);
 
         //Destructor - deletes only the center point - not the neighours
         virtual ~Canopy();
@@ -89,5 +90,37 @@ struct job2 {
 	std::future <Point*> fut;
 	bool inUse = false;
 };
+
+
+inline vector<string> splitByComma(const string& fileS, bool requireTwo, char SrchStr = ',') {
+	string::size_type pos = fileS.find(SrchStr);
+	if (pos == string::npos) {
+		if (requireTwo) {
+			cerr << fileS << endl;
+			cerr << "Could not find \"" << SrchStr << "\" in input file (required for paired end sequences, as these are two files separated by \",\")\n";
+			exit(14);
+		}
+		else {
+			return vector<string>(1, fileS);
+		}
+	}
+	vector<string> tfas(2, "");
+	tfas[0] = fileS.substr(0, pos);
+	tfas[1] = fileS.substr(pos + 1);
+	return tfas;
+}
+
+inline vector<string> splitByCommas(const string& fileS, char SrchStr = ',') {
+	if (fileS.find(SrchStr) == string::npos) { return vector<string>(1, fileS); }
+	vector<string> res = splitByComma(fileS, true, SrchStr);
+	vector<string> ret(0); ret.push_back(res[0]);
+	while (res[1].find(SrchStr) != string::npos) {
+		res = splitByComma(res[1], true, SrchStr);
+		ret.push_back(res[0]);
+	}
+	ret.push_back(res[1]);
+	return ret;
+}
+
 
 #endif

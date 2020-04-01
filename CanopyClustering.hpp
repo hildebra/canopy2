@@ -24,6 +24,10 @@
 
 #include "Canopy.hpp"
 
+
+
+void test_annoy(void);
+
 /*Added to just run clustering on guide matrix, which are filtered canopies*/		
 std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& points,
 	vector< Point*>& guides,
@@ -90,7 +94,11 @@ void filter_clusters_by_size(std::vector<shared_ptr<Canopy>>& canopies_to_filter
 void filter(options * opt, TimeProfile time_profile, vector<Point*>& points,
 	vector<Point*>& guidePoints, vector<Point*>& filtered_points);
 
+//function to read pre clustered genes from metabat2
+bool readMB2preSet(options*opt, vector<Point*>& GP, vector<Point*>& points);
+
 void writeMatrix(vector<vector<PRECISIONT>>& mat, string of);
+void writeUsedSmpls(vector<bool>& rm, string of);
 
 vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, 
 	const vector<Point*>& points, const vector<PRECISIONT>& sampleSums);

@@ -6,8 +6,9 @@ options::options(int argc, char** argv):
 	input_file_path(""), input_filter_file(""),
 	priority_reads_file_path(""), output_clusters_file_path("clusters_out"), output_clusters_partial_file_path(""),
 	output_cluster_profiles_file(""), output_cluster_prefix(""), sampleDistMatFile(""),
-	profile_measure_str("75Q"), guide_matrix_file(""),
-	num_threads(1), max_canopy_dist(0.1), max_close_dist(0.6),
+	sampleDistLog(""),
+	profile_measure_str("75Q"), guide_matrix_file(""), refMB2(""),refMB2_maxGenes(1000),
+	num_threads(1), max_canopy_dist(0.1), max_canopy_dist_part(-1), max_close_dist(0.6),
 	max_merge_dist(0.1), min_step_dist(0.001), sampleMinDist(2), verbosity_option("info"),
 	filter_min_obs(3), filter_max_top3_sample_contribution(0.9), cag_filter_min_sample_obs(3),
 	cag_filter_max_top3_sample_contribution(0.9),
@@ -17,7 +18,8 @@ options::options(int argc, char** argv):
 {
 
 	bool hasErr = false;
-	if (argc == 0) { return; }//could be the pseudo mod opt object
+
+	if (argc <= 1) { cout << "No input args given, returning\n"; exit(0); }
 
 
 	for (int i = 0; i < argc; i++)
@@ -47,11 +49,19 @@ options::options(int argc, char** argv):
 			verbosity_option = argv[++i];
 		else if (!strcmp(argv[i], "--sampleDistMatFile"))
 			sampleDistMatFile = argv[++i];
+		else if (!strcmp(argv[i], "--referenceMB2"))
+			refMB2 = argv[++i];
+		else if (!strcmp(argv[i], "--maxMB2genes"))
+			refMB2_maxGenes = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--sampleDistLog"))
+			sampleDistLog = argv[++i];
 		else if (!strcmp(argv[i], "--sampleMinDist"))
 			sampleMinDist = atof(argv[++i]);
 		
-		else if (!strcmp(argv[i], "--max_canopy_dist"))
+		else if (!strcmp(argv[i], "--max_canopy_dist") || !strcmp(argv[i], "-d"))
 			max_canopy_dist = atof(argv[++i]);
+		else if (!strcmp(argv[i], "--max_canopy_dist_part"))
+			max_canopy_dist_part = atof(argv[++i]);
 		else if (!strcmp(argv[i], "--max_close_dist"))
 			max_close_dist = atof(argv[++i]);//this is fixed normally
 		else if (!strcmp(argv[i], "--max_merge_dist"))
@@ -93,5 +103,8 @@ options::options(int argc, char** argv):
 		//
 
 
+	}
+	if (max_canopy_dist_part == -1){//not initialized yet
+		max_canopy_dist_part = max_canopy_dist;
 	}
 }

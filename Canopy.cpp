@@ -18,9 +18,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this software.  If not, see <http://www.gnu.org/licenses/>.
  */
+ /*
+ Metagenomics Canopy Clustering Implementation v2
+ all copyrights lie with Falk Hildebrand (falk.hildebrand [ta] gmail dot com)
+ */
 
 
 #include "Canopy.hpp"
+
 
 Canopy::Canopy(Point* center_to_copy, int deletedSmpls, bool replID):neighbours(0){
     center = new Point(center_to_copy, deletedSmpls);
@@ -32,7 +37,7 @@ Canopy::~Canopy() {
 	delete center;
 }
 
-Canopy::Canopy(std::vector< Point*> neighbours, int deletedSmpls): 
+Canopy::Canopy(std::vector< Point*>& neighbours, int deletedSmpls): 
 	neighbours(neighbours){
     find_and_set_center(deletedSmpls);
 }
