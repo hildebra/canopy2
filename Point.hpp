@@ -28,10 +28,10 @@
 #define POINT
 
 
-
+typedef unordered_map<int, PRECISIONT> mvec2;//somehow doesn't work with robinhood
+typedef robin_hood::unordered_map<int, PRECISIONT> mvec;
 
 enum ProfileMeasureType { MEDIAN, MEAN, PERCENTILE_75, PERCENTILE_80, PERCENTILE_85, PERCENTILE_90, PERCENTILE_95 };
-
 
 
 
@@ -39,12 +39,12 @@ using namespace std;
 class Point {
     public:
         Point( Point* p, int);
-        Point(const char* line,bool =false);
+        Point(string line,bool =false, int=0);
         virtual ~Point();
 
         PRECISIONT* sample_data;
 		//added for sparse representation
-		unordered_map<int, PRECISIONT> sp_data;
+		mvec sp_data; // unordered_map<int, PRECISIONT>
 #ifdef PRECARRAY
         PRECISIONT* sample_data_pearson_precomputed;
 		unordered_map<int, PRECISIONT> sp_data_precomp;
@@ -54,6 +54,8 @@ class Point {
 		double StdDev; // n*SumD2 - Sum2D
 #endif
 		int num_data_samples;
+
+		int lineCnt;
 
 		bool precomputed;
 		bool sparse;
@@ -141,9 +143,11 @@ struct jobCor {
 
 
 //note that "n" is derrived from entries, this is too imprecise for some cases
-PRECISIONT get_distance_between_umaps(const unordered_map<int, PRECISIONT>& v1,
-	const unordered_map<int, PRECISIONT>& v2);
-smplCor get_distance_between_umaps_v(const vector<unordered_map<int, PRECISIONT>>& vs,
+PRECISIONT get_distance_between_umaps(const mvec2& v1,
+	const mvec2& v2);
+smplCor get_distance_between_umaps_v( vector<mvec2>& vs,
 	uint i, int);
 
 #endif
+Point* line2point(string line, bool sparseMat, bool use_spearman, int);
+void readMatrix(vector<Point*>&, vector<PRECISIONT>&, string, bool, bool, int);

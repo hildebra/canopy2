@@ -35,7 +35,7 @@ all copyrights lie with Falk Hildebrand (falk.hildebrand [ta] gmail dot com)
 #include <fstream>
 #include <iomanip>
 
-//#include <vector>
+#include <vector>
 #include <list>
 #include <set>
 #include <unordered_map> 
@@ -51,7 +51,7 @@ all copyrights lie with Falk Hildebrand (falk.hildebrand [ta] gmail dot com)
 #include <assert.h>
 #include <math.h>
 #include <fcntl.h>
-//#include <algorithm> 
+#include <algorithm> 
 
 #include "TimeProfile.hpp"
 

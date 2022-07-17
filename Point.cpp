@@ -2,7 +2,8 @@
  * Metagenomics Canopy Clustering Implementation
  *
  * Copyright (C) 2013, 2014 Piotr Dworzynski (piotr@cbs.dtu.dk), Technical University of Denmark
- *
+ * Copyright (C) 2018 Falk Hildebrand (falk.hildebrand@gmail.com), EMBL
+ * Copyright (C) 2020 Falk Hildebrand (falk.hildebrand@gmail.com), QIB/EI
  * This file is part of Metagenomics Canopy Clustering Implementation.
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
@@ -41,6 +42,87 @@ using namespace std;
 
 
 extern ProfileMeasureType profile_measure;
+struct job2 {
+	std::future <Point*> fut;
+	bool inUse = false;
+};
+
+Point* line2point(string line,bool sparseMat, bool use_spearman, int lcnt) {
+	Point * pp = new Point(line, sparseMat, lcnt);
+	if (use_spearman) {
+		pp->convert_to_rank();
+	}
+	pp->seal();
+	return pp;
+
+}
+
+void readMatrix(vector<Point*>& points, vector<PRECISIONT>& sampleSums ,
+	string input_file_path, bool sparseMat,bool use_spearman, int num_threads) {
+
+	std::istream* point_file;
+
+	if (isGZfile(input_file_path)) {
+#ifdef _gzipread
+		point_file = new igzstream(input_file_path.c_str(), ios::in); cout << "Reading gzip input\n";
+#else
+		cout << "gzip not supported in your rtk build\n"; exit(50);
+#endif
+}
+	else {
+		point_file = new ifstream(input_file_path.c_str());
+	}
+	std::string line;
+	//header.. empty read
+	getline((*point_file), line);
+
+	vector<job2> slots(num_threads);
+	int j(0); int lcnt(0);
+	//vector<job2> fut(num_threads); int ji = 0;
+	while (true) {
+		
+		if (j >= num_threads) { j = 0; }
+		if (slots[j].inUse == true && slots[j].fut.wait_for(std::chrono::milliseconds(1)) == std::future_status::ready) {
+			slots[j].inUse = false;
+			Point * pp = slots[j].fut.get();
+			//cout << pp->lineCnt << " ";
+			pp->addToVec(sampleSums);
+			if (pp->lineCnt >= points.size()) {
+				points.resize(pp->lineCnt+1);
+			}
+			points[pp->lineCnt] = pp;
+			//points.push_back(pp);
+		}
+		if (slots[j].inUse == false) {
+			//string line = safeGetline2(in);
+			getline((*point_file), line);
+			if (!(*point_file)) { break; }
+			if (line.length() < 2) { continue; }
+			//line2point(line,sparseMat, use_spearman);
+			//cout << line<<endl;
+			string lineC = line;
+			slots[j].fut = async(std::launch::async, line2point, lineC, sparseMat,  
+				use_spearman, lcnt);
+			slots[j].inUse = true;
+			lcnt++;
+		}
+		j++;
+
+		//points.push_back(new Point(line.c_str(), sparseMat));		
+	}
+
+	for (j = 0; j < num_threads; j++) {
+		if (slots[j].inUse == true) {
+			slots[j].inUse = false;
+			Point * pp = slots[j].fut.get();
+			pp->addToVec(sampleSums);
+			points.push_back(pp);
+		}
+	}
+	delete point_file;
+
+	cerr << "Read " << lcnt << " rows\n";
+}
 
 
 Point::Point( Point* p, int deletedSmpls):sample_data(NULL),
@@ -107,44 +189,74 @@ Point::~Point() {
 	}
 #endif
 }
-Point::Point(const char* line,bool sp):sample_data(NULL), 
+Point::Point(string line,bool sp, int lc):sample_data(NULL), 
 #ifdef PRECARRAY
 sample_data_pearson_precomputed(NULL),
 #else
 SumD(0), StdDev(0),
 #endif
-	precomputed(false),sparse(sp){
+num_data_samples(0),precomputed(false),sparse(sp), lineCnt(lc)
+{
+	stringstream ss;
+	ss << line;
+	int cnt2(-2);
+	const char sep = '\t';
+	string segments;
+	std::vector<PRECISIONT> sample_data_vector;
+
+	while (getline(ss, segments, sep)) {
+		cnt2++;
+		if (cnt2 == -1) {//this is the row ID
+			id = segments;
+			continue;
+		}
+		sample_data_vector.push_back((PRECISIONT)atof(segments.c_str()));
+	}
+	num_data_samples = sample_data_vector.size();
+	sample_data = new PRECISIONT[num_data_samples];
+
+	num_data_samples = sample_data_vector.size();
+	for (size_t i = 0; i < sample_data_vector.size(); i++) {
+		sample_data[i] = sample_data_vector[i];
+	}
+
+#ifdef PRECARRAY
+	sample_data_pearson_precomputed = NULL;
+#endif
+/*
 	char *next_token = NULL;
 	const char* delim = "\t";
 
     //Copy line to private buffer - strtok will modify it
-    char* private_line = new char[strlen(line) + 1];
+	char* private_line = &line[0];// new char[strlen(line) + 1];
 	//strcpy_s(private_line, sizeof private_line, line);
-	strcpy(private_line, line);
-	_log(logDEBUG3)<< "Point constructor, got: \"" << line << "\"";
+	//strcpy(private_line, line);
+	//_log(logDEBUG3)<< "Point constructor, got: \"" << line << "\"";
 
     //Read gene id - first word in the line
 	//char* word = strtok_s(private_line, delim, &next_token);
 	char* word = strtok(private_line, delim);
 	id = string(word);
-    _log(logDEBUG3)<< "Point constructor, point id: \"" << id << "\""; 
+    //_log(logDEBUG3)<< "Point constructor, point id: \"" << id << "\""; 
 
     //Fill vector with data samples
     std::vector<PRECISIONT> sample_data_vector;
-    sample_data_vector.reserve(700);
+    //sample_data_vector.reserve(700);
 
-    word = strtok(NULL, delim);
+    word = strtok(private_line, delim);
     while( word != NULL ){
         sample_data_vector.push_back((PRECISIONT)atof(word));
-        word = strtok(NULL, delim);
+        word = strtok(private_line, delim);
     }
 
     //Get number of samples for this point
     num_data_samples = sample_data_vector.size();
-    _log(logDEBUG3)<< "Point constructor, num data samples: \"" << num_data_samples << "\""; 
+    //_log(logDEBUG3)<< "Point constructor, num data samples: \"" << num_data_samples << "\""; 
+	//return;
 
 
     //Allocate memory for sample_data (but not pearson precomputed)
+	//assert(num_data_samples > 0);
     sample_data = new PRECISIONT[num_data_samples];
     for(size_t i = 0; i < sample_data_vector.size(); i++){
         sample_data[i] = sample_data_vector[i];
@@ -157,7 +269,8 @@ SumD(0), StdDev(0),
 	sample_data_pearson_precomputed = NULL;
 #endif
 
-    delete[] private_line;
+    //delete[] private_line;
+	*/
 }
 
 vector<PRECISIONT> Point::rankSort(const PRECISIONT* v_temp, const size_t size) {
@@ -237,7 +350,7 @@ void  Point::restore_rm(int sr) {
 }
 void Point::pseudoRmSamples(const vector<bool> & rm, int sumRm) {
 	if (sparse) {
-		unordered_map<int, PRECISIONT>::iterator  x = sp_data.begin();
+		mvec::iterator  x = sp_data.begin();
 		while(x != sp_data.end() ) {
 			int idx = x->first;
 			if (rm[x->first]) {
@@ -283,7 +396,7 @@ void Point::addToVec(vector<PRECISIONT>& sms) {
 PRECISIONT Point::getDist_precomp(Point* oth) {
 	double sum_XY(0);
 	if (sparse) {
-		const unordered_map<int, PRECISIONT>& v2 = oth->sp_data;
+		const mvec& v2 = oth->sp_data;
 		for (auto x : sp_data) {
 			auto fnd = v2.find(x.first);
 			if (fnd == v2.end()) {//v2===Yi == 0
@@ -516,8 +629,8 @@ PRECISIONT get_partial_distance_between_points(const Point* p1, const Point* p2)
 			n += 1.0;
 		}
 	} else {
-		const unordered_map<int, PRECISIONT>& v1 = p1->sp_data;
-		const unordered_map<int, PRECISIONT>& v2 = p2->sp_data;
+		const mvec& v1 = p1->sp_data;
+		const mvec& v2 = p2->sp_data;
 		for (auto x : v1) {
 			auto fnd = v2.find(x.first);
 			if (fnd == v2.end()) {//v2===Yi == 0
@@ -551,7 +664,7 @@ PRECISIONT get_partial_distance_between_points(const Point* p1, const Point* p2)
 
 
 
-smplCor get_distance_between_umaps_v(const vector<unordered_map<int, PRECISIONT>>& vs,
+smplCor get_distance_between_umaps_v( vector<mvec2>& vs,
 	uint i, int nmSmpls) {
 	smplCor ret;
 	for (int k = i + 1; k < nmSmpls; k++) {
@@ -563,8 +676,8 @@ smplCor get_distance_between_umaps_v(const vector<unordered_map<int, PRECISIONT>
 	return ret;
 }
 
-PRECISIONT get_distance_between_umaps(const unordered_map<int, PRECISIONT>& v1,
-	const unordered_map<int, PRECISIONT>& v2) {
+PRECISIONT get_distance_between_umaps(const mvec2& v1,
+	const mvec2& v2) {
 	// function that returns correlation coefficient. 
 	double sum_X(0); double sum_Y(0); double sum_XY(0);
 	double squareSum_X(0); double squareSum_Y(0);

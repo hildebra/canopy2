@@ -28,7 +28,7 @@
 #include "CanopyClustering.hpp"
 
 //#include "annoy/annoylib.h"
-#include "annoy/kissrandom.h"
+//#include "annoy/kissrandom.h"
 
 
 void test_annoy(void) {
@@ -104,14 +104,14 @@ shared_ptr<Canopy> create_canopy_singl(Point* origin, const vector< Point*>& poi
 	PRECISIONT max_neighbour_dist, bool partial, int origin_i) {
 
 
-	std::vector< Point*> neighbours;
-	list<PRECISIONT> corrs;
+	std::vector< Point*> neighbours(0);
+	vector<PRECISIONT> corrs(0);
 
-	Point* potential_neighbour;
+	Point* potential_neighbour = nullptr;
 	for (size_t  i = 0; i < points.size(); i++) {
 		potential_neighbour = points[i];
 		//cout << points[i]->id << " ";
-		PRECISIONT dist;
+		PRECISIONT dist(1.);
 		if (partial) {
 			dist = get_partial_distance_between_points(origin, potential_neighbour);
 		} else {
@@ -623,7 +623,7 @@ std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& poi
 
 	int totalSteps = guides.size();
 	//thread pool
-	vector < job > slots(num_threads);
+	vector < job > slots(num_threads+1);
 	int j = 0; int origin_i = 0;
 	while (true) {
 		//show progress
@@ -637,20 +637,22 @@ std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& poi
 		if (origin_i >= totalSteps) { break; }
 //		create_canopy_singl(guides[origin_i], points, max_canopy_dist, partial, origin_i);
 //		continue;
-		if (j >= num_threads) { j = 0; }
+		if (j > num_threads) { j = 0; }
 		if (slots[j].inUse == true && slots[j].fut.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
 			slots[j].inUse = false;
 			shared_ptr<Canopy> cc = slots[j].fut.get();
 			canopy_vector[cc->get_ori()] = cc;
 		}
 		if (slots[j].inUse == false) {
-			//
-			slots[j].fut = async(std::launch::async, create_canopy_singl, guides[origin_i], ref(points), max_canopy_dist, partial, origin_i);
+			//set up thread jobs
+			slots[j].fut = async(std::launch::async, create_canopy_singl, 
+						guides[origin_i], ref(points), max_canopy_dist, partial, origin_i);
 			origin_i++;
 			slots[j].inUse = true;
 		}
 		j++;
 	}
+	//farm remaining threads
 	for (int j = 0; j < num_threads; j++) {
 		if (slots[j].inUse == true ) {
 			shared_ptr<Canopy> cc = slots[j].fut.get();
@@ -659,53 +661,14 @@ std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& poi
 		}
 
 	}
-	//get remaining jobs
 
 
-	/*
-#pragma omp parallel for shared( canopy_vector) firstprivate( totalSteps, max_canopy_dist, max_close_dist, max_merge_dist, min_step_dist, last_progress_displayed_at_num_points) schedule(dynamic)
-	for (int origin_i = 0; origin_i < totalSteps; origin_i++) {
-
-
-		Point* origin = guides[origin_i];
-
-		//Show progress bar
-		{
-			//Only master thread executes this
-			if (omp_get_thread_num() == 0) {
-				if (log_level >= logPROGRESS && show_progress_bar) {
-					if (origin_i > last_progress_displayed_at_num_points + totalSteps / 100) {
-						printProgBar(origin_i, totalSteps);
-						last_progress_displayed_at_num_points = origin_i;
-					}
-				}
-			}
-		}
-
-
-
-
-		{
-			_log(logDEBUG) << "points.size: " << points.size() << " origin_i: " << origin_i << " origin->id: " << origin->id;
-			_log(logDEBUG1) << "Current canopy origin: " << origin->id;
-		}
-		//keepProfileStable
-		Canopy* final_canopy = create_canopy_singl(origin, points, max_canopy_dist, partial);
-
-//		Canopy* final_canopy = canopy_walk(origin, points, close_points, max_canopy_dist,
-//			max_close_dist, min_step_dist, max_num_canopy_walks, num_canopy_jumps);
-
-		canopy_vector[origin_i] = final_canopy;
-
-	}
-	*/
+	//logging
 	if (partial) {
 		time_profile.stop_timer("partial Multi correlations");
 	} else {
 		time_profile.stop_timer("Multi correlations");
 	}
-
-	
 	_log(logINFO) << "Number of all canopies: " << canopy_vector.size();
 
 
@@ -877,7 +840,7 @@ bool readMB2preSet(options*opt, vector<Point*>& GP, vector<Point*>& points){
 	std::string line;
 
 	//create index for points vector
-	unordered_map<string, uint> p_idx;
+	robin_hood::unordered_map<string, uint> p_idx;
 	for (size_t i = 0; i < points.size();i++) {
 		p_idx[points[i]->id] = i;
 	}
@@ -896,7 +859,7 @@ bool readMB2preSet(options*opt, vector<Point*>& GP, vector<Point*>& points){
 			break;
 		}
 		vector<string> xx = splitByCommas(line, '\t');
-		if (xx[0] != curBin) {
+		if (xx[0] != curBin) {//next Bin in start file.. finish up by creating initial canopy
 			if (pointColl.size() > 0) {
 				Canopy canTmp = Canopy(pointColl, 0);
 				//create a canopy center for these points..
@@ -913,7 +876,8 @@ bool readMB2preSet(options*opt, vector<Point*>& GP, vector<Point*>& points){
 		if (pointColl.size() > MaxNumGenes) { continue; }
 		auto fr = p_idx.find(xx[1]);
 		if (fr == p_idx.end()) {
-			cerr << "Unknown gene in reference, that is not represented in gene matrix: " << xx[1] << line<< endl;
+			cerr << "Unknown gene in reference, that is not represented in gene matrix: " << xx[1] << "\n";
+			cerr << line << endl;
 			exit(363);
 		}
 		pointColl.push_back(points[fr->second]);
@@ -950,7 +914,7 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 	if (!points[0]->sparse) { cerr << "Autocorrelation only implemented for sparse data\n"; exit(232); }
 	int nmSmpls = points[0]->num_data_samples;
 	//reduce to most abundant points
-	vector<unordered_map<int, PRECISIONT>> abPoints(nmSmpls);
+	vector<mvec2> abPoints(nmSmpls);
 	for (uint i = 0; i < points.size();i++) {
 		for (auto x : points[i]->sp_data) {
 			abPoints[x.first][i] = x.second; //basic transpose operation
@@ -967,13 +931,12 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 
 	//filter out the X highest points..
 	int MaxEntries = 50000;
-	vector<unordered_map<int, PRECISIONT>> abPointsF(nmSmpls);
-#pragma omp parallel for shared(abPoints, abPointsF)
+	vector<mvec2> abPointsF(nmSmpls);
+//#pragma omp parallel for shared(abPoints, abPointsF)
 	for (int j = 0; j < nmSmpls; j++) {
 		if ((int)abPoints[j].size() <  MaxEntries) { 
 			abPointsF[j] = abPoints[j];
-			for (auto x : abPoints[j]) {
-			}
+			//for (auto x : abPoints[j]) {		}
 			continue; 
 		}
 		set<pair<int, PRECISIONT>, Comparator> setOfWords(
@@ -987,7 +950,8 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 	}
 
 	//deleting big vector
-	vector<unordered_map<int, PRECISIONT>>().swap(abPoints);
+	//vector<mvec>().swap(abPoints);
+	abPoints.clear();
 
 	
 	_log(logINFO) << "Filtered "<< MaxEntries<<" largest entries";
@@ -1005,10 +969,9 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 		if (rm[i]) { continue; }
 		//get_distance_between_umaps_v (abPointsF, i, nmSmpls); continue;
 		while (true) {
-			if (!slots[j].inUse) {
-				break;
-			}
-			else if (slots[j].fut.wait_for(std::chrono::milliseconds(5)) == std::future_status::ready) {
+			if (j >= num_threads) { j = 0; }
+			if (!slots[j].inUse) {				break;			}
+			else if (slots[j].fut.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
 				slots[j].inUse = false;
 				smplCor tmp = slots[j].fut.get();
 				for (uint f = 0; f < tmp.dist.size(); f++) {
@@ -1027,7 +990,6 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 			}
 			else {
 				j++;
-				if (j >= num_threads) { j = 0; }
 			}
 		}
 		if (slots[j].inUse == false) {
@@ -1037,8 +999,10 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 			//get_distance_between_umaps(abPointsF[i], abPointsF[k], nmSmpls_d, i, k);
 			slots[j].inUse = true;
 			j++;
-			if (j >= num_threads) { j = 0; }
 		}
+	}
+	for (uint j = 0; j < slots.size(); j++) {
+		slots[j].fut.wait();//make sure all jobs are finished
 	}
 	//write out matrix of sample correations (if requested)
 	writeMatrix(corrs, opt->sampleDistMatFile);
@@ -1049,7 +1013,8 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 	time_profile.stop_timer("Input profiles filtering");
 	_log(logINFO) << "Removed " << cntRm << " sample due to correlation distance < " << bound;
 	_log(logINFO) << "Done Filtering autocorrelated samples";
-	vector<unordered_map<int, PRECISIONT>>().swap(abPointsF); // delete vector
+	//vector<mvec>().swap(abPointsF); // delete vector
+	abPointsF.clear();
 
 
 	return(rm);

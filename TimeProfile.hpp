@@ -24,14 +24,13 @@
 #include <time.h>
 #include <cmath>
 #include <string>
-
 #include <unordered_map>
-
+#include "robin_hood.h"
 #include "Log.hpp"
 
 using namespace std;
 
-typedef unordered_map<string, pair<bool, time_t> > TimerMapType;
+typedef robin_hood::unordered_map<string, pair<bool, time_t> > TimerMapType;
 
 class TimeProfile {
     private:

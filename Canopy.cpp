@@ -27,7 +27,7 @@
 #include "Canopy.hpp"
 
 
-Canopy::Canopy(Point* center_to_copy, int deletedSmpls, bool replID):neighbours(0){
+Canopy::Canopy(Point* center_to_copy, int deletedSmpls, bool replID):neighbours(0),corrs(0){
     center = new Point(center_to_copy, deletedSmpls);
 	if (replID) {
 		center->id = "!GENERATED!";
@@ -38,7 +38,7 @@ Canopy::~Canopy() {
 }
 
 Canopy::Canopy(std::vector< Point*>& neighbours, int deletedSmpls): 
-	neighbours(neighbours){
+	neighbours(neighbours), corrs(neighbours.size()){
     find_and_set_center(deletedSmpls);
 }
 
@@ -67,17 +67,24 @@ void Canopy::print2file(ofstream* out_file_memb, ofstream* out_file_pro,
 	}
 	else {//this is a post correlation analysis..
 			string curID = this->center->id;
-			vector<Point*> nei = this->neighbours;
-			list <PRECISIONT> ::iterator it = this->corrs.begin();
-			for (size_t j = 0; j < nei.size(); j++) {
-				Point* p = nei[j];
+			//cerr << "Writing canopy " << curID << ", size = "<< neighbours.size() <<endl;
+			//vector<Point*> nei = this->neighbours;
+			//vector<PRECISIONT> corres = this->corrs.begin();
+			if (neighbours.size() != corrs.size()) {
+				cerr << curID << "\n";
+				cerr << "Found unequal neighbours(" << neighbours.size() << ") and corrs(" << corrs.size() << ") size\n";
+				exit(932);
+			}
+			size_t j = 0;
+			while ( j < neighbours.size() && j < corrs.size() ) {
+				Point* p = neighbours[j];
 				//PRECISIONT dist = get_distance_between_points(c->center, p);
 				*out_file_memb << curID << "\t";
-				*out_file_memb << p->id << "\t" << *it << "\n";
-				it++;
+				*out_file_memb << p->id;
+				*out_file_memb << "\t" << corrs[j] << "\n";
+				j++;
 			}
-		
-
+			//cerr << "  wrote " << j << " genes out\n";
 	}
 
 }

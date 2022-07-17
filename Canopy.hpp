@@ -39,7 +39,8 @@ class Canopy {
         Canopy(Point* center_to_copy,  int deletedSmpls, bool = true);
 
         //Constructor - assigns the neighour points and creates new point for center (representing canopy profile) 
-        Canopy(vector< Point*>& neighbours, int);
+        //only used temporarily
+		Canopy(vector< Point*>& neighbours, int deletedSmpls);
 
         //Destructor - deletes only the center point - not the neighours
         virtual ~Canopy();
@@ -64,7 +65,7 @@ class Canopy {
         //List of points belonging to the canopy
         std::vector< Point*> neighbours;
 		//list of correlations corresponding to neighbor entries..
-		std::list<PRECISIONT> corrs;
+		vector<PRECISIONT> corrs;
 
         //Debugging printout of the canopy
         friend std::ostream& operator<<(std::ostream& ost, const Canopy& c);

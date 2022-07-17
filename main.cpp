@@ -2,6 +2,7 @@
  * Metagenomics Canopy Clustering Implementation
  *
  * Copyright (C) 2013, 2014 Piotr Dworzynski (piotr@cbs.dtu.dk), Technical University of Denmark
+ * Copyright (C) 2019, 2020, 2021 Falk Hildebrand (Falk.Hildebrand@gmail.com)
  *
  * This file is part of Metagenomics Canopy Clustering Implementation.
  *
@@ -49,6 +50,9 @@ int main(int argc, char* argv[])
 
     std::srand ( unsigned ( std::time(NULL) ) );
 
+    string ccbinVer = "0.2";
+    cout  << "cc.bin version " << ccbinVer << endl;
+
     //Preapre Time Profile
     TimeProfile time_profile;
     time_profile.start_timer("Total");
@@ -87,7 +91,9 @@ int main(int argc, char* argv[])
 	int max_num_canopy_walks = opt->max_num_canopy_walks;
 	const string arr[] = { "median", "mean", "75Q", "80Q", "85Q", "90Q", "95Q" };
 	const vector<string> valid_profile_measure_values (arr, arr + sizeof(arr) / sizeof(arr[0]) );
-/*
+
+    //changed to simpler option parser to remove external lib dependency
+    /*
     //Define and read command line options
     options_description all_options_desc("Allowed options");
     options_description options_shown_in_help_desc("Allowed options");
@@ -249,6 +255,7 @@ int main(int argc, char* argv[])
     }
 
     _log(logINFO) << "";
+    _log(logINFO) << "cc.bin version " << ccbinVer;  
     _log(logINFO) << "Files:";
     _log(logINFO) << "input_file_path:\t " << input_file_path;
     _log(logINFO) << "priority_reads_file_path:\t" << priority_reads_file_path;
@@ -278,10 +285,10 @@ int main(int argc, char* argv[])
     //
     //Parse priority point name file
     //
-    time_profile.start_timer("Loading priority reads");
     vector<string> priority_read_names;
     if(priority_reads_file_path != ""){
-        ifstream priority_reads_file (priority_reads_file_path);
+		time_profile.start_timer("Loading priority reads");
+		ifstream priority_reads_file (priority_reads_file_path);
         if(priority_reads_file.is_open())
         {
             string line;
@@ -330,42 +337,21 @@ int main(int argc, char* argv[])
     //Parse point description file
     //
 
-    vector<Point*> points;
-	points.reserve((int)1e6);
     vector<Point*> filtered_points;
 
 //read input files..
     _log(logINFO) << "Reading file line by line";
     time_profile.start_timer("Loading file and reading profiles");
 
-	std::istream* point_file;
+	//heavy IO routine
+	vector<Point*> points(0);
+	vector<PRECISIONT> sampleSums(0);
+	readMatrix(points, sampleSums, input_file_path, sparseMat, use_spearman, num_threads);
+	if (points.size() <= 1) {
+		cerr << "Matrix is empty, aborting";
+		exit(0);
+	}
 
-	if (isGZfile(input_file_path)) {
-#ifdef _gzipread
-		point_file = new igzstream(input_file_path.c_str(), ios::in); cout << "Reading gzip input\n";
-#else
-		cout << "gzip not supported in your rtk build\n"; exit(50);
-#endif
-	}
-	else {
-		point_file = new ifstream(input_file_path.c_str());
-	}
-    std::string line;
-	vector<PRECISIONT> sampleSums;
-	//vector<job2> fut(num_threads); int ji = 0;
-	while (std::getline((*point_file), line)) {
-		if (line.length() < 2)
-			break;
-		//points.push_back(new Point(line.c_str(), sparseMat));
-		Point * pp = new Point(line.c_str(), sparseMat);
-		if (use_spearman) {
-			pp->convert_to_rank();
-		}
-		pp->seal();
-		pp->addToVec(sampleSums);
-		points.push_back(pp);
-	}
-	delete point_file;
     time_profile.stop_timer("Loading file and reading profiles"); _log(logINFO) << "";
 	readMB2preSet(opt, guidePoints, points);
 	
@@ -491,9 +477,13 @@ int main(int argc, char* argv[])
 	}
 	for (int i = 0; i < (int)canopies.size(); i++) {
 		//shared_ptr<Canopy> c = canopies[i];
+		//cerr << "at cano " << i << "of" << canopies.size() << endl;
+		if (canopies[i] == nullptr) { cerr << "Detected null pointer!! at " << i << " !!" << endl; continue; }
 		canopies[i]->print2file(out_file, out_file2,opt,i, num_digits, guided);
 	}
 	(*out_file).close();
+	_log(logPROGRESS) << "#################### Finished writing canopies ####################";
+
 	if (output_cluster_profiles_file != "") {
 		(*out_file2).close();
 	}
@@ -514,6 +504,7 @@ int main(int argc, char* argv[])
 		_log(logPROGRESS) << "#################### Writing Results of partial correlations ####################";
 
 		for (int i = 0; i < (int) canopies_par.size(); i++) {
+			if (canopies_par[i] == nullptr) { cerr << "Detected null pointer par !! at " << i << " !!" << endl; continue; }
 			canopies_par[i]->print2file(OF, NULL, opt, i, num_digits, true);
 		}
 		(*OF).close();
