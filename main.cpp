@@ -49,17 +49,23 @@ int main(int argc, char* argv[])
     log_level = logINFO;
 
     std::srand ( unsigned ( std::time(NULL) ) );
-
-    string ccbinVer = "0.2";
-    cout  << "cc.bin version " << ccbinVer << endl;
+    //.22: fixed bug when more cores than samples were used
+    string ccbinVer = "0.23";
 
     //Preapre Time Profile
     TimeProfile time_profile;
     time_profile.start_timer("Total");
 
-	test_annoy();
+	//test_annoy();
+
+    if (argc == 2 && (!strcmp(argv[1], "-v") || !strcmp(argv[1], "--version")) ) {
+        cout << "cc.bin v " << ccbinVer << endl;
+        exit(0);
+
+    }
 
 	options* opt = new options(argc, argv);
+    cout << "cc.bin v " << ccbinVer << endl;
 
     //Prepare variables for command line input
 	string input_file_path = opt->input_file_path;
@@ -91,6 +97,9 @@ int main(int argc, char* argv[])
 	int max_num_canopy_walks = opt->max_num_canopy_walks;
 	const string arr[] = { "median", "mean", "75Q", "80Q", "85Q", "90Q", "95Q" };
 	const vector<string> valid_profile_measure_values (arr, arr + sizeof(arr) / sizeof(arr[0]) );
+
+    bool filter_redundant = opt->filter_redundant;// true;//filter redundant genes assigned to multiple guides?
+
 
     //changed to simpler option parser to remove external lib dependency
     /*
@@ -403,16 +412,24 @@ int main(int argc, char* argv[])
     //
     //Run Canopy Clustering
     //
-    std::vector<shared_ptr<Canopy>> canopies;
-	bool guided = guidePoints.size() > 0;
+    std::vector<shared_ptr<Canopy>> canopies(guidePoints.size(), nullptr);
+    bool guided = guidePoints.size() > 0;
 
 	if (guided) {
 		_log(logINFO) << "";
 		_log(logINFO) << "Calculating genes correlationg to guide profiles";
-		canopies = multi_core_run_correlations(filtered_points, guidePoints,
+
+		 multi_core_run_correlations(filtered_points, guidePoints, canopies,
 			num_threads, max_canopy_dist,
 			show_progress_bar, time_profile,false);
 		_log(logINFO) << "Finished deep correlations";
+
+        if (filter_redundant) {
+            _log(logINFO) << "Filtering redundantly assigned genes";
+            filter_redundant_genes(canopies, guidePoints, time_profile);
+            _log(logINFO) << "Finished filtering redundantly assigned genes";
+        }
+
 	}
 	else {
 		_log(logINFO) << "";
@@ -491,11 +508,11 @@ int main(int argc, char* argv[])
 
 	//partial correlations
 	if (output_clusters_partial_file_path != "") {
-		std::vector<shared_ptr<Canopy>> canopies_par(0);
+        
 		_log(logINFO) << "";
 		_log(logINFO) << "Calculating genes PARTIALLY correlationg to guide profiles";
-
-		canopies_par = multi_core_run_correlations(filtered_points, guidePoints,
+        std::vector<shared_ptr<Canopy>> canopies_par(guidePoints.size());
+		 multi_core_run_correlations(filtered_points, guidePoints, canopies_par,
 			num_threads, max_canopy_dist_part, show_progress_bar, time_profile,true);
 	
 		ofstream *OF;

@@ -29,10 +29,13 @@
 void test_annoy(void);
 
 /*Added to just run clustering on guide matrix, which are filtered canopies*/		
-std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& points,
-	vector< Point*>& guides,
+void multi_core_run_correlations(vector< Point*>& points,
+	vector< Point*>& guides, std::vector<shared_ptr<Canopy>>& ,
 		int num_threads, PRECISIONT max_canopy_dist,
 		bool show_progress_bar, TimeProfile& time_profile,bool partial=false);
+
+//filtering of redundant genes..
+void filter_redundant_genes(vector<shared_ptr<Canopy>>& cans, vector< Point*>& guides, TimeProfile& time_profile);
 
 /**
     * Run the canopy clustering algorithm

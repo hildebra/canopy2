@@ -593,8 +593,64 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
 
 }
 
-std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& points,
-	vector< Point*>& guides,
+void filter_redundant_genes(vector<shared_ptr<Canopy>>& cans, vector< Point*>& guides, TimeProfile& time_profile) {
+	size_t Nprofs = cans.size();
+	trackP tracker;
+
+	time_profile.start_timer("Filter redundant genes");
+
+
+	for (uint ci = 0; ci < Nprofs; ci++) {
+	//	cerr << "A";
+		//shared_ptr<Canopy> lcan = cans[ci];
+		if (cans[ci] == nullptr) { continue; }
+		std::vector< Point*>& lnei = cans[ci]->neighbours;
+		if (lnei.size() == 0) { continue; }
+		uint ci2 = cans[ci]->get_ori();
+		if (ci2 != ci) {
+			cerr << ci2 << " is not " << ci << " !!\n"; exit(55);
+		}
+	//	cerr << "\n";
+		for (size_t pi = 0; pi < lnei.size(); pi++) {
+	//		cerr << "Y";
+			auto res = tracker.find(lnei[pi]->id);
+	//		cerr << "U";
+			if (res == tracker.end()) {//add to tracker, first observed gene..
+				tracker[lnei[pi]->id] = { ci,pi };// lnei[pi];
+			}	else {//decide who is better match..
+	//			cerr << "T";
+				PRECISIONT distL = get_distance_between_points(guides[ci], lnei[pi]);
+				PRECISIONT distR = get_distance_between_points(guides[res->second.first], lnei[pi]);
+	//			cerr << "s";
+				if (distL < distR) {//local is better, keep
+					cans[res->second.first]->neighbours[res->second.second] = nullptr;
+					res->second = { ci,pi };
+					//auto res2 = tracker.find(lnei[pi]->id);
+					//int x = 1;
+				} else { //other is better, remove local
+	//				cerr << "v";
+					cans[ci]->neighbours[pi] = nullptr;
+				}
+	//			cerr << "X";
+			}
+		}
+	}
+	//cerr << "Clean up\n";
+	uint clnd = 0; uint Nclnd = 0;
+	for (size_t ci = 0; ci < Nprofs; ci++) {
+		if (cans[ci] == nullptr) { continue; }
+		uint clndR = cans[ci]->cleanUp();
+		if (clndR) {
+			clnd++; Nclnd += clndR;
+		}
+	}
+	_log(logINFO) << "Cleaned " << clnd << " Canopies from redundant genes, removing "<< Nclnd<<" genes";
+	time_profile.stop_timer("Filter redundant genes");
+
+}
+
+void multi_core_run_correlations(vector< Point*>& points,
+	vector< Point*>& guides, std::vector<shared_ptr<Canopy>>& canopy_vector,
 	int num_threads, PRECISIONT max_canopy_dist,
 	bool show_progress_bar, TimeProfile& time_profile, bool partial) {
 
@@ -607,7 +663,6 @@ std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& poi
 	vector<unsigned int> canopy_size_per_origin_num;//Contains size of the canopy created from origin by it's number, so first origin gave canopy of size 5, second origin gave canopy of size 8 and so on
 	int last_progress_displayed_at_num_points = 0;
 
-	std::vector<shared_ptr<Canopy>> canopy_vector(guides.size());
 
 	//
 	//Create canopies
@@ -673,7 +728,7 @@ std::vector<shared_ptr<Canopy>> multi_core_run_correlations(vector< Point*>& poi
 
 
 
-	return canopy_vector;
+	//return canopy_vector;
 
 }
 
@@ -958,6 +1013,9 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 	//now calculate correlations among samples..
 	//abPointsF = abPoints;
 	int num_threads = opt->num_threads;
+	if (num_threads > nmSmpls) {
+		num_threads = nmSmpls;
+	}
 	double nmSmpls_d = (double)nmSmpls;
 //	double nrows_d = double(nrows);
 	vector<bool> rm(abPointsF.size(), false);

@@ -58,6 +58,10 @@ class Canopy {
 		int ori_index;
 		
 		void restore_rm(int sr) { center->restore_rm(sr); }
+
+
+		//looks for nullptr in neighbours, removes these..
+		uint cleanUp();
         
         //Center point representing the canopy profile
 		Point* center;

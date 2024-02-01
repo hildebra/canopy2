@@ -95,6 +95,36 @@ void Canopy::find_and_set_center(int deletedSmpls){
 
 }
 
+uint Canopy::cleanUp() {
+	bool hasnull = false;
+	uint clndGs = 0;
+	uint osize = neighbours.size();
+	for (size_t i = 0; i < neighbours.size(); i++) {
+		if (neighbours[i] == nullptr){
+			//hasnull = true;// break;
+			clndGs++;
+		}
+	}
+	if (!clndGs) { return clndGs; }
+
+	//clean up//
+	std::vector< Point*> neighbours2(osize- clndGs);
+	vector<PRECISIONT> corrs2(osize - clndGs);
+	uint i2 = 0;
+	for (size_t i = 0; i < neighbours.size(); i++) {
+		if (neighbours[i] != nullptr) {
+			//neighbours2.push_back(neighbours[i]);
+			//clndGs++;
+			neighbours2[i2] = neighbours[i];
+			corrs2[i2] = corrs[i];
+			i2++;
+		}
+	}
+	neighbours = neighbours2;
+	corrs = corrs2;
+	return clndGs;
+}
+
 std::ostream& operator<<(std::ostream& ost, const Canopy& c)
 {
     ost << ">>>>>>>>>>Canopy>>>>>>>>" << std::endl;

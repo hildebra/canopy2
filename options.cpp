@@ -14,7 +14,7 @@ options::options(int argc, char** argv):
 	cag_filter_max_top3_sample_contribution(0.9),
 	stop_after_num_seeds_processed(50000),
 	dont_create_progress_stat_file(false), progress_stat_file("canopy_progress.out"), not_processed_profiles_file(""), show_progress_bar(false), print_time_statistics(true),
-	die_on_kill(true), sparseMat(true), use_spearman(false), max_num_canopy_walks(6)
+	die_on_kill(true), sparseMat(true), use_spearman(false), max_num_canopy_walks(6), filter_redundant(true)
 {
 
 	bool hasErr = false;
@@ -96,6 +96,8 @@ options::options(int argc, char** argv):
 			die_on_kill = !die_on_kill;
 		else if (!strcmp(argv[i], "--high_mem"))
 			sparseMat = false;
+		else if (!strcmp(argv[i], "--redundant_guides"))
+			filter_redundant = false;
 		else if (!strcmp(argv[i], "--use_spearman"))
 			use_spearman = !use_spearman;
 

@@ -30,7 +30,6 @@
 
 typedef unordered_map<int, PRECISIONT> mvec2;//somehow doesn't work with robinhood
 typedef robin_hood::unordered_map<int, PRECISIONT> mvec;
-
 enum ProfileMeasureType { MEDIAN, MEAN, PERCENTILE_75, PERCENTILE_80, PERCENTILE_85, PERCENTILE_90, PERCENTILE_95 };
 
 
@@ -111,8 +110,6 @@ class Point {
        // friend std::size_t hash_value(const Point &p);
         friend std::ostream& operator<<(std::ostream& ost, const Point& ls);
 
-		friend PRECISIONT get_distance_between_points(Point* p1, Point* p2);
-		friend PRECISIONT get_partial_distance_between_points(const Point* p1, const Point* p2);
 		friend Point* get_centroid_of_points(const std::vector< Point*>& points,int);
 		friend PRECISIONT getMedian(const vector<Point*>& points, vector<PRECISIONT>& point_samples,
 			int lower_element_i, int upper_element_i, const int, int, PRECISIONT, PRECISIONT,
@@ -129,6 +126,10 @@ class Point {
 		void precompute_pearson_data_array_2();
 		void precompute_pearson_data_sparse_2();
 };
+
+PRECISIONT get_distance_between_points(Point* p1, Point* p2);
+PRECISIONT get_partial_distance_between_points(const Point* p1, const Point* p2);
+
 
 //Point* create_Point(string l);
 struct smplCor {
@@ -151,3 +152,8 @@ smplCor get_distance_between_umaps_v( vector<mvec2>& vs,
 #endif
 Point* line2point(string line, bool sparseMat, bool use_spearman, int);
 void readMatrix(vector<Point*>&, vector<PRECISIONT>&, string, bool, bool, int);
+
+
+//search def
+typedef robin_hood::unordered_map<std::string, pair<int,int> > trackP;
+

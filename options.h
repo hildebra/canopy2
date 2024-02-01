@@ -57,4 +57,5 @@ public:
 	bool dont_use_mmap;
 	bool use_spearman; // simply converts input points to ranks
 	int max_num_canopy_walks;
+	bool filter_redundant;//guide profiles; remove redundant genes
 };
