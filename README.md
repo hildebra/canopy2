@@ -14,10 +14,11 @@ make
 
 ## License
 
-GPL-3.0: Please see License.txt
+GPL-2.0: Please see License.txt
 
 ## Author
 
-Falk Hildebrand, (c) 2023
+Copyright (C) 2019-2024 Falk Hildebrand (Falk.Hildebrand@gmail.com), Quadram Institute
+Copyright (C) 2013, 2014 Piotr Dworzynski (piotr@cbs.dtu.dk), Technical University of Denmark
 
 
