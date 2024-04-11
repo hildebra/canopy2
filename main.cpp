@@ -48,9 +48,10 @@ int main(int argc, char* argv[])
     //Set initial logging level
     log_level = logINFO;
 
-    std::srand ( unsigned ( std::time(NULL) ) );
+
     //.22: fixed bug when more cores than samples were used
-    string ccbinVer = "0.23";
+    //.24: added option to seed RNG
+    string ccbinVer = "0.24";
 
     //Preapre Time Profile
     TimeProfile time_profile;
@@ -66,6 +67,12 @@ int main(int argc, char* argv[])
 
 	options* opt = new options(argc, argv);
     cout << "cc.bin v " << ccbinVer << endl;
+
+    int seed = opt->RNG_Seed;
+
+    if (seed == -1) { seed = unsigned(std::time(NULL)); }
+    std::srand(seed);
+
 
     //Prepare variables for command line input
 	string input_file_path = opt->input_file_path;

@@ -14,7 +14,8 @@ options::options(int argc, char** argv):
 	cag_filter_max_top3_sample_contribution(0.9),
 	stop_after_num_seeds_processed(50000),
 	dont_create_progress_stat_file(false), progress_stat_file("canopy_progress.out"), not_processed_profiles_file(""), show_progress_bar(false), print_time_statistics(true),
-	die_on_kill(true), sparseMat(true), use_spearman(false), max_num_canopy_walks(6), filter_redundant(true)
+	die_on_kill(true), sparseMat(true), use_spearman(false), max_num_canopy_walks(6), filter_redundant(true),
+	RNG_Seed(-1)
 {
 
 	bool hasErr = false;
@@ -44,6 +45,8 @@ options::options(int argc, char** argv):
 			input_filter_file = argv[++i];
 		else if (!strcmp(argv[i], "-n") || !strcmp(argv[i], "--num_threads"))
 			num_threads = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "-n") || !strcmp(argv[i], "--seed"))
+			RNG_Seed = atoi(argv[++i]);
 
 		else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbosity"))
 			verbosity_option = argv[++i];
