@@ -11,7 +11,7 @@ fi
 
 VER=$(./cc.bin -v | cut -f 3 -d " ")
 
-if ! echo $VER | perl -ne 'chomp; if ($_=~/(\d+\.\d+)$/) { print "OK\tVersion valid\n" } else { die "Version not passing" } ' ; then
+if ! echo "$VER" | perl -ne 'chomp; if ($_=~/(\d+\.\d+)$/) { print "OK\tVersion valid\n" } else { die "Version not passing" } ' ; then
     echo "Error: Output does not end with a version number: $VER"
     false
 fi
