@@ -51,7 +51,8 @@ int main(int argc, char* argv[])
 
     //.22: fixed bug when more cores than samples were used
     //.24: added option to seed RNG
-    string ccbinVer = "0.24";
+	//.25: conda release
+    string ccbinVer = "0.25";
 
     //Preapre Time Profile
     TimeProfile time_profile;
