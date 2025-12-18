@@ -290,7 +290,12 @@ void shuffle_points(vector< Point*>& points, vector<string>& priority_read_names
     });
 
     //Now shuffle the non prioritized pionts
-    std::random_shuffle(first_non_priority_pint_it, points.end());
+	// deprecated in C++14
+    //std::random_shuffle(first_non_priority_pint_it, points.end());
+	std::random_device rd;std::mt19937 mt_g(rd());
+
+	std::shuffle(first_non_priority_pint_it, points.end(), mt_g);
+
 
 }
 
