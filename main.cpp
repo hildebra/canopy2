@@ -489,7 +489,7 @@ int main(int argc, char* argv[])
     _log(logPROGRESS) << "#################### Writing Results ####################" ;
 	ofstream* out_file(NULL); ofstream* out_file2(NULL);
 
-    int num_digits = (int)ceil(log10(canopies.size()));
+    int num_digits = canopies.empty() ? 1 : (int)ceil(log10((double)canopies.size() + 1.0));
     //cout << std::setfill('0');
 
 

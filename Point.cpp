@@ -147,9 +147,7 @@ SumD(0),StdDev(0),
 			sample_data[i] = p->sample_data[i];
 		}
 	}
-	for (auto x : sp_data_rm) {
-		sp_data_rm[x.first] = x.second;
-	}
+	sp_data_rm = p->sp_data_rm;
 
     if(p->precomputed ){
         //The above if only checks if the point being copied has had its sample pearson data precomputed
@@ -347,6 +345,7 @@ void  Point::restore_rm(int sr) {
 			sample_data[x.first] = x.second;
 		}
 	}
+	num_data_samples += sr;
 }
 void Point::pseudoRmSamples(const vector<bool> & rm, int sumRm) {
 	if (sparse) {

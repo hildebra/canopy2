@@ -397,20 +397,25 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
             continue;
         }
 
-        Point* origin = points[origin_i]; 
+		Point* origin = points[origin_i]; 
 		if (!origin->precomputed) { cerr << "Precomputation missing!\n"; exit(723); }
 
-        if(marked_points.find(origin) != marked_points.end())
-            continue;
+		bool origin_already_marked = false;
+#pragma omp critical
+		{
+			origin_already_marked = (marked_points.find(origin) != marked_points.end());
+		}
+		if(origin_already_marked)
+			continue;
 
         //Show progress bar
         {
             //Only master thread executes this
-            if(omp_get_thread_num() == 0){
+			if(omp_get_thread_num() == 0){
                 if(log_level >= logPROGRESS && show_progress_bar){
                     if(marked_points.size() > last_progress_displayed_at_num_points + stop_after_num_seeds_processed/100){
-                        printProgBar(marked_points.size(),(int)stop_after_num_seeds_processed * points.size());
-                        last_progress_displayed_at_num_points = (int)stop_after_num_seeds_processed;
+						printProgBar((int)marked_points.size(), (int)stop_after_num_seeds_processed);
+						last_progress_displayed_at_num_points = (int)marked_points.size();
                     }
                 }
             }
@@ -486,7 +491,9 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
 
 
     _log(logINFO) << "";
-    _log(logINFO) << "Avg. number of canopy walks: " << num_canopy_jumps/((PRECISIONT)canopy_vector.size());
+	if(!canopy_vector.empty()) {
+		_log(logINFO) << "Avg. number of canopy walks: " << num_canopy_jumps/((PRECISIONT)canopy_vector.size());
+	}
     _log(logINFO) << "Number of all canopies before merging: " << canopy_vector.size();
 
     _log(logPROGRESS) << "";
@@ -582,9 +589,9 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
 
             //Show progress bar
             {
-                if(log_level >= logPROGRESS && show_progress_bar){
-                    if(original_number_of_canopies - canopy_vector.size() % 1000)
-                        printProgBar(original_number_of_canopies - canopy_vector.size(), original_number_of_canopies );
+				if(log_level >= logPROGRESS && show_progress_bar){
+					if(((original_number_of_canopies - (int)canopy_vector.size()) % 1000) == 0)
+						printProgBar(original_number_of_canopies - (int)canopy_vector.size(), original_number_of_canopies );
                 }
             }
         }
@@ -836,10 +843,10 @@ void filter(options * opt, TimeProfile time_profile, vector<Point*>& points,
 		filtered_point_file.open(input_filter_file.c_str(), ios::out | ios::trunc);
 		filtered_point_file << "#filtered_profile_id\tinput_filter_name\n";
 		for (size_t i = 0; i < points_filtered_out_due_to_num_non_zero_samples_filter.size(); i++) {
-			filtered_point_file << points[i]->id << "\t" << "min_observations_filter" << "\n";
+			filtered_point_file << points_filtered_out_due_to_num_non_zero_samples_filter[i]->id << "\t" << "min_observations_filter" << "\n";
 		}
 		for (size_t i = 0; i < points_filtered_out_due_to_three_point_proportion_filter.size(); i++) {
-			filtered_point_file << points[i]->id << "\t" << "max_top3_sample_contribution_filter" << "\n";
+			filtered_point_file << points_filtered_out_due_to_three_point_proportion_filter[i]->id << "\t" << "max_top3_sample_contribution_filter" << "\n";
 		}
 		filtered_point_file.close();
 	}
@@ -1065,7 +1072,22 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 		}
 	}
 	for (uint j = 0; j < slots.size(); j++) {
-		slots[j].fut.wait();//make sure all jobs are finished
+		if (slots[j].inUse) {
+			smplCor tmp = slots[j].fut.get();
+			slots[j].inUse = false;
+			for (uint f = 0; f < tmp.dist.size(); f++) {
+				corrs[tmp.i[f]][tmp.k[f]] = tmp.dist[f];
+				if (tmp.dist[f] < bound) {
+					if (sampleSums[tmp.i[f]] > sampleSums[tmp.k[f]]) {
+						rm[tmp.k[f]] = true;
+					}
+					else {
+						rm[tmp.i[f]] = true;
+					}
+					cntRm++;
+				}
+			}
+		}
 	}
 	//write out matrix of sample correations (if requested)
 	writeMatrix(corrs, opt->sampleDistMatFile);

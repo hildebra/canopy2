@@ -25,70 +25,78 @@ options::options(int argc, char** argv):
 
 	for (int i = 0; i < argc; i++)
 	{
+		auto next_value = [&](const char* option_name) -> char* {
+			if (i + 1 >= argc) {
+				cerr << "Missing value for option: " << option_name << "\n";
+				exit(2);
+			}
+			return argv[++i];
+		};
+
 		if (!strcmp(argv[i], "-i") || !strcmp(argv[i], "--input_file_path"))
-			input_file_path = argv[++i];
+			input_file_path = next_value(argv[i]);
 		else if (!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output_clusters_file_path"))
-			output_clusters_file_path = argv[++i];
+			output_clusters_file_path = next_value(argv[i]);
 		else if (!strcmp(argv[i], "--priority_reads_file_path"))
-			priority_reads_file_path = argv[++i];
+			priority_reads_file_path = next_value(argv[i]);
 		else if (!strcmp(argv[i], "-g") || !strcmp(argv[i], "--guide_matrix"))
-			guide_matrix_file = argv[++i];
+			guide_matrix_file = next_value(argv[i]);
 		else if (!strcmp(argv[i], "-c") || !strcmp(argv[i], "--output_cluster_profiles_file"))
-			output_cluster_profiles_file = argv[++i];
+			output_cluster_profiles_file = next_value(argv[i]);
 		else if (!strcmp(argv[i], "-r") || !strcmp(argv[i], "--output_clusters_partial_file_path"))
-			output_clusters_partial_file_path = argv[++i];
+			output_clusters_partial_file_path = next_value(argv[i]);
 		else if (!strcmp(argv[i], "-p") || !strcmp(argv[i], "--cluster_name_prefix"))
-			output_cluster_prefix = argv[++i];
+			output_cluster_prefix = next_value(argv[i]);
 		else if (!strcmp(argv[i], "--profile_measure"))
-			profile_measure_str = argv[++i];
+			profile_measure_str = next_value(argv[i]);
 		else if (!strcmp(argv[i], "--input_filter_file"))
-			input_filter_file = argv[++i];
+			input_filter_file = next_value(argv[i]);
 		else if (!strcmp(argv[i], "-n") || !strcmp(argv[i], "--num_threads"))
-			num_threads = atoi(argv[++i]);
-		else if (!strcmp(argv[i], "-n") || !strcmp(argv[i], "--seed"))
-			RNG_Seed = atoi(argv[++i]);
+			num_threads = atoi(next_value(argv[i]));
+		else if (!strcmp(argv[i], "-s") || !strcmp(argv[i], "--seed"))
+			RNG_Seed = atoi(next_value(argv[i]));
 
 		else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbosity"))
-			verbosity_option = argv[++i];
+			verbosity_option = next_value(argv[i]);
 		else if (!strcmp(argv[i], "--sampleDistMatFile"))
-			sampleDistMatFile = argv[++i];
+			sampleDistMatFile = next_value(argv[i]);
 		else if (!strcmp(argv[i], "--referenceMB2"))
-			refMB2 = argv[++i];
+			refMB2 = next_value(argv[i]);
 		else if (!strcmp(argv[i], "--maxMB2genes"))
-			refMB2_maxGenes = atoi(argv[++i]);
+			refMB2_maxGenes = atoi(next_value(argv[i]));
 		else if (!strcmp(argv[i], "--sampleDistLog"))
-			sampleDistLog = argv[++i];
+			sampleDistLog = next_value(argv[i]);
 		else if (!strcmp(argv[i], "--sampleMinDist"))
-			sampleMinDist = atof(argv[++i]);
+			sampleMinDist = atof(next_value(argv[i]));
 		
 		else if (!strcmp(argv[i], "--max_canopy_dist") || !strcmp(argv[i], "-d"))
-			max_canopy_dist = atof(argv[++i]);
+			max_canopy_dist = atof(next_value(argv[i]));
 		else if (!strcmp(argv[i], "--max_canopy_dist_part"))
-			max_canopy_dist_part = atof(argv[++i]);
+			max_canopy_dist_part = atof(next_value(argv[i]));
 		else if (!strcmp(argv[i], "--max_close_dist"))
-			max_close_dist = atof(argv[++i]);//this is fixed normally
+			max_close_dist = atof(next_value(argv[i]));//this is fixed normally
 		else if (!strcmp(argv[i], "--max_merge_dist"))
-			max_merge_dist = atof(argv[++i]);
+			max_merge_dist = atof(next_value(argv[i]));
 		else if (!strcmp(argv[i], "--min_step_dist"))
-			min_step_dist = atof(argv[++i]); //also fixed
+			min_step_dist = atof(next_value(argv[i])); //also fixed
 		else if (!strcmp(argv[i], "--filter_min_obs"))
-			filter_min_obs = atoi(argv[++i]);
+			filter_min_obs = atoi(next_value(argv[i]));
 		else if (!strcmp(argv[i], "--filter_max_top3_sample_contribution"))
-			filter_max_top3_sample_contribution = atof(argv[++i]);
+			filter_max_top3_sample_contribution = atof(next_value(argv[i]));
 
 
 		else if (!strcmp(argv[i], "--cag_filter_min_sample_obs"))
-			cag_filter_min_sample_obs = atoi(argv[++i]);
+			cag_filter_min_sample_obs = atoi(next_value(argv[i]));
 		else if (!strcmp(argv[i], "--cag_filter_max_top3_sample_contribution"))
-			cag_filter_max_top3_sample_contribution = atof(argv[++i]);
+			cag_filter_max_top3_sample_contribution = atof(next_value(argv[i]));
 		else if (!strcmp(argv[i], "--stop_criteria"))
-			stop_after_num_seeds_processed = atoi(argv[++i]);
+			stop_after_num_seeds_processed = atoi(next_value(argv[i]));
 		else if (!strcmp(argv[i], "--not_processed_profiles_file"))
-			not_processed_profiles_file = argv[++i];
+			not_processed_profiles_file = next_value(argv[i]);
 		else if (!strcmp(argv[i], "--progress_stat_file"))
-			progress_stat_file = argv[++i];
+			progress_stat_file = next_value(argv[i]);
 		else if (!strcmp(argv[i], "--max_num_canopy_walks"))
-			max_num_canopy_walks = atoi(argv[++i]);
+			max_num_canopy_walks = atoi(next_value(argv[i]));
 		else if (!strcmp(argv[i], "--dont_create_progress_stat_file"))
 			dont_create_progress_stat_file = !dont_create_progress_stat_file;
 		else if (!strcmp(argv[i], "--show_progress_bar"))
