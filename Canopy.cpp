@@ -7,7 +7,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -27,24 +27,21 @@
 #include "Canopy.hpp"
 
 
-Canopy::Canopy(Point* center_to_copy, int deletedSmpls, bool replID):neighbours(0),corrs(0){
-    center = new Point(center_to_copy, deletedSmpls);
+Canopy::Canopy(Point* center_to_copy, int deletedSmpls, bool replID):
+	ori_index(-1), center(new Point(center_to_copy, deletedSmpls)), neighbours(0), corrs(0){
 	if (replID) {
 		center->id = "!GENERATED!";
 	}
 }
-Canopy::~Canopy() {
-	delete center;
-}
 
-Canopy::Canopy(std::vector< Point*>& neighbours, int deletedSmpls): 
-	neighbours(neighbours), corrs(neighbours.size()){
+Canopy::Canopy(std::vector< Point*>& neighbours, int deletedSmpls):
+	ori_index(-1), center(nullptr), neighbours(neighbours), corrs(neighbours.size()){
     find_and_set_center(deletedSmpls);
 }
 
 void Canopy::print2file(ofstream* out_file_memb, ofstream* out_file_pro,
-	options* opt, int kk, int num_digits,bool guided) {
-	string output_cluster_prefix = opt->output_cluster_prefix;
+	const options& opt, int kk, int num_digits,bool guided) {
+	string output_cluster_prefix = opt.output_cluster_prefix;
 	if (!guided) {
 		//members
 		for (Point* p : this->neighbours) {
@@ -96,7 +93,6 @@ void Canopy::find_and_set_center(int deletedSmpls){
 }
 
 uint Canopy::cleanUp() {
-	bool hasnull = false;
 	uint clndGs = 0;
 	uint osize = neighbours.size();
 	for (size_t i = 0; i < neighbours.size(); i++) {
@@ -145,5 +141,3 @@ std::ostream& operator<<(std::ostream& ost, const Canopy& c)
 bool compare_canopy_ptrs_by_canopy_size(const shared_ptr<Canopy> a, const shared_ptr<Canopy> b){
     return (a->neighbours.size() > b->neighbours.size());
 }
-
-

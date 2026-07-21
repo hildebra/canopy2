@@ -7,7 +7,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -53,7 +53,14 @@ all copyrights lie with Falk Hildebrand (falk.hildebrand [ta] gmail dot com)
 #include <math.h>
 #include <fcntl.h>
 #include <algorithm> 
+#include <atomic>
+#include <cerrno>
+#include <climits>
+#include <cstdlib>
+#include <limits>
+#include <memory>
 #include <random>
+#include <stdexcept>
 
 #include "TimeProfile.hpp"
 
@@ -109,6 +116,9 @@ static bool check_if_within_bounds(string option_name, int value, int lower, int
     }
 }
 static bool isGZfile(const std::string fi) {
+	if (fi.length() < 3) {
+		return false;
+	}
 	std::string subst = fi.substr(fi.length() - 3);
 	if (subst == ".gz") {
 		return true;
@@ -128,15 +138,17 @@ static bool check_if_file_is_readable(string option_name, string path) {
 }
 
 static bool check_if_file_is_writable(string option_name, string path){
-    ofstream file;
-    try{
-        file.open(path.c_str(), ios::out | ios::trunc);
-        file.close();
-        return true;
-    } catch (ios_base::failure){
-        _log(logERR) << "Option: \"" << option_name << "\" must be accessible and writable.";
-        exit(1);
-    }
+	if (path.empty()) {
+		_log(logERR) << "Option: \"" << option_name << "\" requires a non-empty path.";
+		exit(1);
+	}
+	ofstream file(path.c_str(), ios::out | ios::app);
+	if (!file.is_open() || file.fail()) {
+		_log(logERR) << "Option: \"" << option_name << "\" must be accessible and writable.";
+		exit(1);
+	}
+	file.close();
+	return true;
 }
 
 
@@ -152,7 +164,4 @@ static bool check_if_one_of(string option_name, string value, vector<string> val
     exit(1);
 }
  
-
-
-
 

@@ -10,9 +10,9 @@ program_INCLUDE_DIRS := ${BOOST_ROOT}
 program_LIBRARY_DIRS := 
 program_LIBRARIES :=
 
-CPPFLAGS += -std=c++0x  -O3 -D__USE_XOPEN2K8 -fopenmp -DSINGLEPRECISION  
+CPPFLAGS += -std=c++11 -O3 -D__USE_XOPEN2K8 -fopenmp -DSINGLEPRECISION
 CPPFLAGS += $(foreach includedir,$(program_INCLUDE_DIRS),-I$(includedir))
-LDFLAGS +=  -pthread 
+LDFLAGS += -pthread -fopenmp
 LDFLAGS += $(foreach library,$(program_LIBRARIES),-l$(library))
 LDFLAGS += -lz
 .PHONY: all clean distclean
@@ -22,12 +22,8 @@ all: $(program_NAME)
 $(program_NAME): $(program_OBJS)
 	$(LINK.cc) $(program_OBJS) -o $(program_NAME) $(LDFLAGS)
 
-test: test/log/check.txt
-	./$(program_NAME) -v
-
-test/log/check.txt: $(program_NAME)
-	mkdir -p test/log/
-	@bash test.sh 
+test: $(program_NAME)
+	@bash test.sh ./$(program_NAME)
 
 clean: cleantest
 	@- $(RM) $(program_NAME)
@@ -39,4 +35,3 @@ cleantest:
 	@- $(RM) test/log/check.txt
 
 distclean: clean
-

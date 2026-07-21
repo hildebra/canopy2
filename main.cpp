@@ -8,7 +8,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -49,10 +49,10 @@ int main(int argc, char* argv[])
     log_level = logINFO;
 
 
-    //.22: fixed bug when more cores than samples were used
-    //.24: added option to seed RNG
-	//.25: conda release
-    string ccbinVer = "0.25";
+	// 0.26: correctness hardening for async result collection, numerical edge
+	// cases, Spearman/mean profiles, option validation, safe output/signals,
+	// deterministic seeds, memory ownership, and GPL-2 license consistency.
+    string ccbinVer = "0.26";
 
     //Preapre Time Profile
     TimeProfile time_profile;
@@ -66,47 +66,45 @@ int main(int argc, char* argv[])
 
     }
 
-	options* opt = new options(argc, argv);
+	options opt(argc, argv);
     cout << "cc.bin v " << ccbinVer << endl;
 
-    int seed = opt->RNG_Seed;
-
-    if (seed == -1) { seed = unsigned(std::time(NULL)); }
-    std::srand(seed);
+	int seed = opt.RNG_Seed;
+	if (seed == -1) { seed = static_cast<int>(std::time(NULL)); }
+	opt.RNG_Seed = seed;
 
 
     //Prepare variables for command line input
-	string input_file_path = opt->input_file_path;
-    string input_filter_file = opt->input_filter_file;
-    string priority_reads_file_path = opt->priority_reads_file_path; //This optional file contains names of the reads that will be used as canopy centers first, then clustering proceeds as before (points chosen by random)
-	string output_clusters_file_path = opt->output_clusters_file_path;
-	string output_clusters_partial_file_path = opt->output_clusters_partial_file_path;
-	string output_cluster_profiles_file = opt->output_cluster_profiles_file;
-	string profile_measure_str = opt->profile_measure_str;
-	string guide_matrix_file = opt->guide_matrix_file;
-	int num_threads = opt->num_threads;
-	PRECISIONT max_canopy_dist = opt->max_canopy_dist;
-	PRECISIONT max_canopy_dist_part = opt->max_canopy_dist_part;
-	const PRECISIONT max_close_dist = opt->max_close_dist;  //The value is hardcoded and the option to change it removed from CLI to not confuse users
-	PRECISIONT max_merge_dist = opt->max_merge_dist;
-	const PRECISIONT min_step_dist = opt->min_step_dist;  //The value is hardcoded and the option to change it removed from CLI to not confuse users 
-	string verbosity_option = opt->verbosity_option;
+	string input_file_path = opt.input_file_path;
+    string input_filter_file = opt.input_filter_file;
+    string priority_reads_file_path = opt.priority_reads_file_path; //This optional file contains names of the reads that will be used as canopy centers first, then clustering proceeds as before (points chosen by random)
+	string output_clusters_file_path = opt.output_clusters_file_path;
+	string output_clusters_partial_file_path = opt.output_clusters_partial_file_path;
+	string output_cluster_profiles_file = opt.output_cluster_profiles_file;
+	string profile_measure_str = opt.profile_measure_str;
+	string guide_matrix_file = opt.guide_matrix_file;
+	int num_threads = opt.num_threads;
+	PRECISIONT max_canopy_dist = opt.max_canopy_dist;
+	PRECISIONT max_canopy_dist_part = opt.max_canopy_dist_part;
+	const PRECISIONT max_close_dist = opt.max_close_dist;  //The value is hardcoded and the option to change it removed from CLI to not confuse users
+	PRECISIONT max_merge_dist = opt.max_merge_dist;
+	const PRECISIONT min_step_dist = opt.min_step_dist;  //The value is hardcoded and the option to change it removed from CLI to not confuse users
+	string verbosity_option = opt.verbosity_option;
 	
-	int cag_filter_min_sample_obs = opt->cag_filter_min_sample_obs;
-	double cag_filter_max_top3_sample_contribution = opt->cag_filter_max_top3_sample_contribution;
-	double stop_after_num_seeds_processed = opt->stop_after_num_seeds_processed;
-	string progress_stat_file = opt->progress_stat_file;
-	string not_processed_profiles_file = opt->not_processed_profiles_file;
-	bool show_progress_bar = opt->show_progress_bar;
-	bool print_time_statistics = opt->print_time_statistics;
-	bool die_on_kill = opt->die_on_kill;
-	bool dont_use_mmap = opt->dont_use_mmap;
-	bool use_spearman = opt->use_spearman;  // simply converts input points to ranks
-	int max_num_canopy_walks = opt->max_num_canopy_walks;
+	int cag_filter_min_sample_obs = opt.cag_filter_min_sample_obs;
+	double cag_filter_max_top3_sample_contribution = opt.cag_filter_max_top3_sample_contribution;
+	int stop_after_num_seeds_processed = opt.stop_after_num_seeds_processed;
+	string progress_stat_file = opt.progress_stat_file;
+	string not_processed_profiles_file = opt.not_processed_profiles_file;
+	bool show_progress_bar = opt.show_progress_bar;
+	bool print_time_statistics = opt.print_time_statistics;
+	bool die_on_kill = opt.die_on_kill;
+	bool use_spearman = opt.use_spearman;  // simply converts input points to ranks
+	int max_num_canopy_walks = opt.max_num_canopy_walks;
 	const string arr[] = { "median", "mean", "75Q", "80Q", "85Q", "90Q", "95Q" };
 	const vector<string> valid_profile_measure_values (arr, arr + sizeof(arr) / sizeof(arr[0]) );
 
-    bool filter_redundant = opt->filter_redundant;// true;//filter redundant genes assigned to multiple guides?
+    bool filter_redundant = opt.filter_redundant;// true;//filter redundant genes assigned to multiple guides?
 
 
     //changed to simpler option parser to remove external lib dependency
@@ -129,7 +127,7 @@ int main(int argc, char* argv[])
 		("guide_matrix,g", value<string>(&guide_matrix_file)->default_value(""), "Guide matrix that will be correlated against new matrix")
 		("output_clusters_file_path,o", value<string>(&output_clusters_file_path)->default_value("clusters_out"), "Path to file to which clusters will be written")
 		("output_clusters_partial_file_path,r", value<string>(&output_clusters_partial_file_path)->default_value(""), "Path to file to which partially correlating genes will be written")
-		
+
 		("output_cluster_profiles_file,c", value<string>(&output_cluster_profiles_file)->default_value(""), "Path to file to which cluster profiles will be written")
         ("cluster_name_prefix,p", value<string>(&output_cluster_prefix)->default_value("CAG"), "Prefix prepended to output cluster names")
         ("num_threads,n", value<int>(&num_threads)->default_value(4), "Number of cpu threads to use.")
@@ -160,7 +158,7 @@ int main(int argc, char* argv[])
 
     misc_options_desc.add_options()
         ("die_on_kill", bool_switch(&die_on_kill), "If set, after receiving a KILL signal, the program will die and no results will be produced. By default clustering will stop but clusters will be merged and partial results will be printed as usual.")
-        ("dont_use_mmap", bool_switch(&dont_use_mmap), "If set, the program will not attempt to read in the entire file into memory but read it line by line. It will be slower but will potentially save lot of RAM.")
+        ("dont_use_mmap", bool_switch(&dont_use_mmap), "Read the input matrix line by line instead of loading it into memory. This is slower but can substantially reduce peak RAM use.")
         ("not_processed_profiles_file", value<string>(&not_processed_profiles_file)->default_value(""), "Path to file to which unprocessed profiles will be dumped at KILL signal")
         ("print_time_statistics,t", bool_switch(&print_time_statistics), "Print wall clock time profiles of various analysis parts. This is not aggressive and won't increase compuatation time.")
         ("show_progress_bar,b", bool_switch(&show_progress_bar), "Show progress bar, nice if output is printed to console, don't use if you are redirecting to a file. Verbosity must be set to at least PROGRESS for it to have an effect.") 
@@ -197,31 +195,47 @@ int main(int argc, char* argv[])
 
 
     check_if_file_is_readable("input_file_path",input_file_path);
-    if(priority_reads_file_path != "")
-        check_if_file_is_readable("priority_reads_file_path", priority_reads_file_path);
+	if(priority_reads_file_path != "") {
+		check_if_file_is_readable("priority_reads_file_path", priority_reads_file_path);
+	}
 	if (guide_matrix_file != "")
 		check_if_file_is_readable("guide_matrix_file", guide_matrix_file);
-    //check_if_file_is_writable("output_clusters_file_path",output_clusters_file_path);
-    //check_if_file_is_writable("output_cluster_profiles_file",output_cluster_profiles_file);
-    check_if_file_is_writable("input_filter_file",input_filter_file);
+	if (opt.refMB2 != "")
+		check_if_file_is_readable("referenceMB2", opt.refMB2);
+	check_if_file_is_writable("output_clusters_file_path", output_clusters_file_path);
+	if (output_cluster_profiles_file != "")
+		check_if_file_is_writable("output_cluster_profiles_file", output_cluster_profiles_file);
+	if (output_clusters_partial_file_path != "")
+		check_if_file_is_writable("output_clusters_partial_file_path", output_clusters_partial_file_path);
+	if (input_filter_file != "")
+		check_if_file_is_writable("input_filter_file", input_filter_file);
+	if (opt.sampleDistMatFile != "")
+		check_if_file_is_writable("sampleDistMatFile", opt.sampleDistMatFile);
+	if (opt.sampleDistLog != "")
+		check_if_file_is_writable("sampleDistLog", opt.sampleDistLog);
 	const string arr2[] = { "error", "progress", "warn", "info", "debug", "debug1", "debug2", "debug3" };
 	const vector<string> valid_verbosities(arr2, arr2 + sizeof(arr2) / sizeof(arr2[0]));
 
     check_if_one_of("verbosity_option",verbosity_option, valid_verbosities);
     check_if_within_bounds("num_threads",num_threads,1,999);//Not exactly future proof, but let's put foolproofness first
-    check_if_within_bounds("max_canopy_dist",max_canopy_dist,0.0,1.0);
+	check_if_within_bounds("max_canopy_dist",max_canopy_dist,0.0,1.0);
+	check_if_within_bounds("max_canopy_dist_part",max_canopy_dist_part,0.0,1.0);
     check_if_within_bounds("max_close_dist",max_close_dist,0.0,1.0);
     check_if_within_bounds("max_merge_dist",max_merge_dist,0.0,1.0);
     check_if_within_bounds("min_step_dist",min_step_dist,0.0,1.0);
     check_if_within_bounds("max_num_canopy_walks",max_num_canopy_walks,0,100);
     check_if_one_of("profile_measure", profile_measure_str, valid_profile_measure_values);
 
-    check_if_within_bounds("filter_min_obs",opt->filter_min_obs,0,10000);
-    check_if_within_bounds("filter_max_top3_sample_contribution", opt->filter_max_top3_sample_contribution,0.0,1.0);
+    check_if_within_bounds("filter_min_obs",opt.filter_min_obs,0,10000);
+    check_if_within_bounds("filter_max_top3_sample_contribution", opt.filter_max_top3_sample_contribution,0.0,1.0);
     check_if_within_bounds("cag_filter_min_sample_obs",cag_filter_min_sample_obs,0,10000);
-    check_if_within_bounds("cag_filter_max_top3_sample_contribution",cag_filter_max_top3_sample_contribution,0.0,1.0);
-	//bool dont_create_progress_stat_file = opt->dont_create_progress_stat_file;
-	bool create_progress_stat_file = !opt->dont_create_progress_stat_file;
+	check_if_within_bounds("cag_filter_max_top3_sample_contribution",cag_filter_max_top3_sample_contribution,0.0,1.0);
+	check_if_within_bounds("sampleMinDist", opt.sampleMinDist, 0.0, 2.0);
+	check_if_within_bounds("stop_criteria", stop_after_num_seeds_processed, 0, INT_MAX);
+	check_if_within_bounds("seed", opt.RNG_Seed, -1, INT_MAX);
+	if (opt.refMB2 != "")
+		check_if_within_bounds("maxMB2genes", opt.refMB2_maxGenes, 1, INT_MAX);
+	bool create_progress_stat_file = !opt.dont_create_progress_stat_file;
     if(create_progress_stat_file)
         check_if_file_is_writable("progress_stat_file",progress_stat_file);
     if(not_processed_profiles_file!= "")
@@ -291,13 +305,14 @@ int main(int argc, char* argv[])
 
     //Set number of threads
     _log(logINFO) << "";
-    _log(logINFO) << "General:";
-    _log(logINFO) << "num_threads:\t " << num_threads;
+	_log(logINFO) << "General:";
+	_log(logINFO) << "num_threads:\t " << num_threads;
+	_log(logINFO) << "seed:\t " << seed;
    // _log(logINFO) << "precision_type:\t " << boost::typeindex::type_id<PRECISIONT>().pretty_name();
     _log(logINFO) << "";
 
     omp_set_num_threads(num_threads);
-	bool sparseMat = opt->sparseMat;
+	bool sparseMat = opt.sparseMat;
 
     //
     //Parse priority point name file
@@ -322,6 +337,7 @@ int main(int argc, char* argv[])
         _log(logINFO) << "";
         time_profile.stop_timer("Loading priority reads");
     }
+	vector<std::unique_ptr<Point>> guide_point_owners;
 	vector<Point*> guidePoints;
 	if (guide_matrix_file != "") {
 		time_profile.start_timer("Guide matrix");
@@ -332,13 +348,21 @@ int main(int argc, char* argv[])
 
 		while (std::getline(point_file, line)) {
 			if (line.length() < 2)
-				break;
-			Point * pp = new Point(line.c_str(), sparseMat);
+				continue;
+			std::unique_ptr<Point> pp;
+			try {
+				pp.reset(new Point(line.c_str(), sparseMat));
+			}
+			catch (const std::exception& error) {
+				cerr << error.what() << "\n";
+				exit(1);
+			}
 			if (use_spearman) {
 				pp->convert_to_rank();
 			}
 			pp->seal();
-			guidePoints.push_back(pp);
+			guidePoints.push_back(pp.get());
+			guide_point_owners.push_back(std::move(pp));
 			die_if_true(terminate_called);
 		}
 		point_file.close();
@@ -357,38 +381,59 @@ int main(int argc, char* argv[])
     vector<Point*> filtered_points;
 
 //read input files..
-    _log(logINFO) << "Reading file line by line";
     time_profile.start_timer("Loading file and reading profiles");
 
 	//heavy IO routine
+	vector<std::unique_ptr<Point>> point_owners;
 	vector<Point*> points(0);
 	vector<PRECISIONT> sampleSums(0);
-	readMatrix(points, sampleSums, input_file_path, sparseMat, use_spearman, num_threads);
-	if (points.size() <= 1) {
-		cerr << "Matrix is empty, aborting";
-		exit(0);
+	readMatrix(points, point_owners, sampleSums, input_file_path, sparseMat,
+		num_threads, opt.dont_use_mmap);
+	if (points.empty()) {
+		cerr << "Matrix is empty, aborting\n";
+		exit(1);
 	}
 
-    time_profile.stop_timer("Loading file and reading profiles"); _log(logINFO) << "";
-	readMB2preSet(opt, guidePoints, points);
-	
-	//rm autocorrelated samples..
+	time_profile.stop_timer("Loading file and reading profiles"); _log(logINFO) << "";
+	verify_proper_point_input_or_die(points, guidePoints);
+	readMB2preSet(opt, guidePoints, guide_point_owners, points);
+
+	// Filter raw abundance profiles before transforming them to ranks.
+	filter(opt, time_profile, points, point_owners, guidePoints, filtered_points);
+	if (filtered_points.empty()) {
+		cerr << "All input profiles were filtered out; no clustering can be performed.\n";
+		exit(1);
+	}
+
+	// Remove autocorrelated samples using the retained raw abundance profiles.
 	bool autocorr_sample_filter = true;
-	if (guidePoints.size() > 0 || opt->sampleMinDist >= 2){
+	if (guidePoints.size() > 0 || opt.sampleMinDist >= 2){
 		autocorr_sample_filter = false;
 	}
 	vector<bool> rmSmpls; int sumRm(0);
 	if (autocorr_sample_filter) {
-		rmSmpls = autocorr_filter(opt, time_profile,points, sampleSums);
-		sumRm = handleRms(points, rmSmpls);
+		vector<PRECISIONT> filtered_sample_sums;
+		for (Point* point : filtered_points) {
+			point->addToVec(filtered_sample_sums);
+		}
+		rmSmpls = autocorr_filter(opt, time_profile, filtered_points, filtered_sample_sums);
+		if (use_spearman) {
+#pragma omp parallel for shared(filtered_points, rmSmpls)
+			for (int i = 0; i < static_cast<int>(filtered_points.size()); i++) {
+				filtered_points[i]->convert_to_rank(rmSmpls);
+			}
+		}
+		sumRm = handleRms(filtered_points, rmSmpls);
 	}
 
-	filter(opt, time_profile, points, guidePoints, filtered_points);
-    //Do not use "points" or points_filtered_out_due_to_three_point_proportion_filter or points_filtered_out_due_to_num_non_zero_samples_filter at this point
-    
-    
-    die_if_true(terminate_called);
-    die_if_true(filtered_points.size() < 1);
+	if (use_spearman && !autocorr_sample_filter) {
+#pragma omp parallel for shared(filtered_points)
+		for (int i = 0; i < static_cast<int>(filtered_points.size()); i++) {
+			filtered_points[i]->convert_to_rank();
+		}
+	}
+	// Do not use points after filtering; it contains entries freed by filter().
+	die_if_true(terminate_called);
 
     //
     //This will precompute values for quicker pearson correlation calculation
@@ -420,8 +465,12 @@ int main(int argc, char* argv[])
     //
     //Run Canopy Clustering
     //
-    std::vector<shared_ptr<Canopy>> canopies(guidePoints.size(), nullptr);
-    bool guided = guidePoints.size() > 0;
+	std::vector<shared_ptr<Canopy>> canopies(guidePoints.size(), nullptr);
+	bool guided = guidePoints.size() > 0;
+	if (output_clusters_partial_file_path != "" && !guided) {
+		cerr << "Partial correlation output requires a guide matrix or MetaBAT2 reference.\n";
+		exit(2);
+	}
 
 	if (guided) {
 		_log(logINFO) << "";
@@ -485,17 +534,27 @@ int main(int argc, char* argv[])
 		}
 	}
 
-    _log(logPROGRESS) << "";
-    _log(logPROGRESS) << "#################### Writing Results ####################" ;
-	ofstream* out_file(NULL); ofstream* out_file2(NULL);
+	_log(logPROGRESS) << "";
+	_log(logPROGRESS) << "#################### Writing Results ####################" ;
+	ofstream out_file(output_clusters_file_path.c_str(), ios::out | ios::trunc);
+	if (!out_file.is_open() || out_file.fail()) {
+		cerr << "Could not open cluster output file: " << output_clusters_file_path << "\n";
+		exit(1);
+	}
+	ofstream profile_file;
+	ofstream* out_file2 = NULL;
 
     int num_digits = canopies.empty() ? 1 : (int)ceil(log10((double)canopies.size() + 1.0));
     //cout << std::setfill('0');
 
 
-    out_file = new ofstream(output_clusters_file_path.c_str(), ios::out | ios::trunc);
 	if (output_cluster_profiles_file != "") {
-		out_file2 = new ofstream(output_cluster_profiles_file.c_str(), ios::out | ios::trunc);
+		profile_file.open(output_cluster_profiles_file.c_str(), ios::out | ios::trunc);
+		if (!profile_file.is_open() || profile_file.fail()) {
+			cerr << "Could not open cluster profile output file: " << output_cluster_profiles_file << "\n";
+			exit(1);
+		}
+		out_file2 = &profile_file;
 	}
 	if (!guided) {
 		sort(canopies.begin(), canopies.end(), compare_canopy_ptrs_by_canopy_size);
@@ -504,35 +563,50 @@ int main(int argc, char* argv[])
 		//shared_ptr<Canopy> c = canopies[i];
 		//cerr << "at cano " << i << "of" << canopies.size() << endl;
 		if (canopies[i] == nullptr) { cerr << "Detected null pointer!! at " << i << " !!" << endl; continue; }
-		canopies[i]->print2file(out_file, out_file2,opt,i, num_digits, guided);
+		canopies[i]->print2file(&out_file, out_file2,opt,i, num_digits, guided);
 	}
-	(*out_file).close();
+	out_file.close();
+	if (out_file.fail()) {
+		cerr << "Failed while writing cluster output file: " << output_clusters_file_path << "\n";
+		exit(1);
+	}
 	_log(logPROGRESS) << "#################### Finished writing canopies ####################";
 
 	if (output_cluster_profiles_file != "") {
-		(*out_file2).close();
+		out_file2->close();
+		if (out_file2->fail()) {
+			cerr << "Failed while writing cluster profile output file: " << output_cluster_profiles_file << "\n";
+			exit(1);
+		}
 	}
 
 
 	//partial correlations
 	if (output_clusters_partial_file_path != "") {
-        
+
 		_log(logINFO) << "";
 		_log(logINFO) << "Calculating genes PARTIALLY correlationg to guide profiles";
         std::vector<shared_ptr<Canopy>> canopies_par(guidePoints.size());
 		 multi_core_run_correlations(filtered_points, guidePoints, canopies_par,
 			num_threads, max_canopy_dist_part, show_progress_bar, time_profile,true);
 	
-		ofstream *OF;
-		OF = new ofstream(output_clusters_partial_file_path.c_str(), ios::out | ios::trunc);
+		ofstream partial_file(output_clusters_partial_file_path.c_str(), ios::out | ios::trunc);
+		if (!partial_file.is_open() || partial_file.fail()) {
+			cerr << "Could not open partial-correlation output file: " << output_clusters_partial_file_path << "\n";
+			exit(1);
+		}
 		_log(logPROGRESS) << "";
 		_log(logPROGRESS) << "#################### Writing Results of partial correlations ####################";
 
 		for (int i = 0; i < (int) canopies_par.size(); i++) {
 			if (canopies_par[i] == nullptr) { cerr << "Detected null pointer par !! at " << i << " !!" << endl; continue; }
-			canopies_par[i]->print2file(OF, NULL, opt, i, num_digits, true);
+			canopies_par[i]->print2file(&partial_file, NULL, opt, i, num_digits, true);
 		}
-		(*OF).close();
+		partial_file.close();
+		if (partial_file.fail()) {
+			cerr << "Failed while writing partial-correlation output file: " << output_clusters_partial_file_path << "\n";
+			exit(1);
+		}
 			//
  //Clean up
  //

@@ -7,7 +7,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -25,16 +25,16 @@
 using namespace std;
 
 
-int terminate_called = 0;
+volatile sig_atomic_t terminate_called = 0;
 
 void signal_callback_gentle_handler(int signum){
-    _log(logERR) << "Received signal: " << signum;
-    terminate_called += 1;
+	(void)signum;
+	terminate_called = 1;
 }
 
 void signal_callback_die_handler(int signum){
-    _log(logERR) << "Received signal: " << signum << " Bye! Bye!";
-    exit(1);
+	(void)signum;
+	_Exit(1);
 }
 
 void die_if_true(int terminate_called){

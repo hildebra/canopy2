@@ -7,7 +7,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -42,12 +42,11 @@ class Canopy {
         //only used temporarily
 		Canopy(vector< Point*>& neighbours, int deletedSmpls);
 
-        //Destructor - deletes only the center point - not the neighours
-        virtual ~Canopy();
+		virtual ~Canopy() = default;
 		
 		//handle output to file
 		void print2file(ofstream* out_file_memb, ofstream* out_file_pro,
-			options*, int, int, bool );
+			const options&, int, int, bool );
 
         //Set's the profile for the center point
         void find_and_set_center(int deletedSmpls);
@@ -64,7 +63,9 @@ class Canopy {
 		uint cleanUp();
         
         //Center point representing the canopy profile
-		Point* center;
+		// The canopy owns its generated center. Neighbours remain non-owning
+		// references to profiles held by the input/guide ownership pools.
+		std::unique_ptr<Point> center;
 
         //List of points belonging to the canopy
         std::vector< Point*> neighbours;
@@ -91,12 +92,6 @@ struct job {
 	std::future <shared_ptr<Canopy>> fut;
 	bool inUse = false;
 };
-struct job2 {
-	std::future <Point*> fut;
-	bool inUse = false;
-};
-
-
 inline vector<string> splitByComma(const string& fileS, bool requireTwo, char SrchStr = ',') {
 	string::size_type pos = fileS.find(SrchStr);
 	if (pos == string::npos) {

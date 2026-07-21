@@ -7,7 +7,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -25,5 +25,4 @@
 PRECISIONT pearsoncorr_from_precomputed(int n, const PRECISIONT* v1, const PRECISIONT* v2);
 PRECISIONT pearsoncorr_from_precomputed(int n, unordered_map<int,PRECISIONT>& v1, 
 	unordered_map<int,PRECISIONT>& v2);
-
 

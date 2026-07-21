@@ -7,7 +7,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -68,6 +68,7 @@ class Point {
 		void seal();
 		void addToVec(vector<PRECISIONT>& sms);
 		void convert_to_rank();
+		void convert_to_rank(const vector<bool>& removed_samples);
 		vector<PRECISIONT> rankSort(const PRECISIONT* v_temp, const size_t size);
         
         std::string id;
@@ -76,7 +77,7 @@ class Point {
 		void precompute_pearson_data();
 		PRECISIONT getDist_precomp( Point* oth);//pearson distance, new implementation..
 
-		PRECISIONT getDataSparse(int x) {
+		PRECISIONT getDataSparse(int x) const {
 			auto fnd = sp_data.find(x);
 			if (fnd != sp_data.end()) {
 				return fnd->second;
@@ -85,7 +86,7 @@ class Point {
 				return 0;
 			}
 		}
-		PRECISIONT getDataRm(int x) { // only check for already deleted data
+		PRECISIONT getDataRm(int x) const { // only check for already deleted data
 			auto fnd = sp_data_rm.find(x);
 			if (fnd != sp_data_rm.end()) {
 				return fnd->second;
@@ -94,7 +95,7 @@ class Point {
 				return 0;
 			}
 		}
-		PRECISIONT getData(int x) {
+		PRECISIONT getData(int x) const {
 			if (sparse) {
 				return getDataSparse(x);
 			}
@@ -110,7 +111,8 @@ class Point {
        // friend std::size_t hash_value(const Point &p);
         friend std::ostream& operator<<(std::ostream& ost, const Point& ls);
 
-		friend Point* get_centroid_of_points(const std::vector< Point*>& points,int);
+		friend std::unique_ptr<Point> get_centroid_of_points(
+			const std::vector< Point*>& points, int);
 		friend PRECISIONT getMedian(const vector<Point*>& points, vector<PRECISIONT>& point_samples,
 			int lower_element_i, int upper_element_i, const int, int, PRECISIONT, PRECISIONT,
 			bool);
@@ -145,15 +147,15 @@ struct jobCor {
 
 //note that "n" is derrived from entries, this is too imprecise for some cases
 PRECISIONT get_distance_between_umaps(const mvec2& v1,
-	const mvec2& v2);
+	const mvec2& v2, int num_observations);
 smplCor get_distance_between_umaps_v( vector<mvec2>& vs,
-	uint i, int);
+	uint i, int num_samples, int num_observations);
 
 #endif
-Point* line2point(string line, bool sparseMat, bool use_spearman, int);
-void readMatrix(vector<Point*>&, vector<PRECISIONT>&, string, bool, bool, int);
+std::unique_ptr<Point> line2point(string line, bool sparseMat, int);
+void readMatrix(vector<Point*>&, vector<std::unique_ptr<Point>>&,
+	vector<PRECISIONT>&, string, bool, int, bool);
 
 
 //search def
 typedef robin_hood::unordered_map<std::string, pair<int,int> > trackP;
-

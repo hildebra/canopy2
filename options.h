@@ -46,7 +46,7 @@ public:
 	double filter_max_top3_sample_contribution;
 	int cag_filter_min_sample_obs;
 	double cag_filter_max_top3_sample_contribution;
-	double stop_after_num_seeds_processed;
+	int stop_after_num_seeds_processed;
 	bool dont_create_progress_stat_file;
 	string progress_stat_file;
 	string not_processed_profiles_file;
@@ -54,7 +54,7 @@ public:
 	bool print_time_statistics;
 	bool die_on_kill;
 	bool sparseMat;
-	bool dont_use_mmap;
+	bool dont_use_mmap; // stream input instead of buffering the complete matrix
 	bool use_spearman; // simply converts input points to ranks
 	int max_num_canopy_walks;
 	bool filter_redundant;//guide profiles; remove redundant genes

@@ -7,7 +7,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -26,6 +26,8 @@
 #include "Canopy.hpp"
 #include "Point.hpp"
 #include "CanopyClustering.hpp"
+
+#include <numeric>
 
 //#include "annoy/annoylib.h"
 //#include "annoy/kissrandom.h"
@@ -137,7 +139,7 @@ shared_ptr<Canopy> create_canopy_singl(Point* origin, const vector< Point*>& poi
 
 shared_ptr<Canopy> canopy_walk(Point* origin, vector< Point*>& points,
 	vector< Point*>& close_points, PRECISIONT max_canopy_dist, PRECISIONT max_close_dist,
-	PRECISIONT min_step_dist, PRECISIONT max_num_canopy_walks, int& num_canopy_jumps,
+	PRECISIONT min_step_dist, int max_num_canopy_walks, int& num_canopy_jumps,
 	int deletedSmpls){
 
 	shared_ptr<Canopy> c1;
@@ -152,10 +154,13 @@ shared_ptr<Canopy> canopy_walk(Point* origin, vector< Point*>& points,
         return c1;                                                               
     }
 
-    c2 = create_canopy(c1->center, points, close_points, max_canopy_dist, max_close_dist, false,
+    c2 = create_canopy(c1->center.get(), points, close_points, max_canopy_dist, max_close_dist, false,
 		deletedSmpls);
+	int num_canopy_jumps_local = 1;
+#pragma omp atomic
+	num_canopy_jumps++;
     
-    PRECISIONT dist = get_distance_between_points(c1->center, c2->center);
+    PRECISIONT dist = get_distance_between_points(c1->center.get(), c2->center.get());
 
     {
         _log(logDEBUG2) << "Canopy walking, first step";
@@ -164,8 +169,7 @@ shared_ptr<Canopy> canopy_walk(Point* origin, vector< Point*>& points,
         _log(logDEBUG2) << "First potential jump correlation dist: " << dist;
     }
 
-    int num_canopy_jumps_local = 0;
-    while((dist > min_step_dist) && (num_canopy_jumps_local <= max_num_canopy_walks )){
+	while((dist > min_step_dist) && (num_canopy_jumps_local < max_num_canopy_walks )){
         c1=c2;
 
         num_canopy_jumps_local++; 
@@ -173,9 +177,9 @@ shared_ptr<Canopy> canopy_walk(Point* origin, vector< Point*>& points,
 #pragma omp atomic
         num_canopy_jumps++;
 
-        c2=create_canopy(c1->center, points, close_points, max_canopy_dist, max_close_dist, false,
+        c2=create_canopy(c1->center.get(), points, close_points, max_canopy_dist, max_close_dist, false,
 			deletedSmpls);
-        dist = get_distance_between_points(c1->center, c2->center); 
+        dist = get_distance_between_points(c1->center.get(), c2->center.get());
         {
             _log(logDEBUG2) << "Canopy walking, step: " << num_canopy_jumps_local;
             _log(logDEBUG2) << *c1;
@@ -198,11 +202,9 @@ void filter_clusters_by_size(std::vector<shared_ptr<Canopy>>& canopies_to_filter
 
     vector<int> canopy_indexes_to_remove;
 
-    for(size_t  i=0; i < canopies_to_filter.size(); i++){
+	for(size_t  i=0; i < canopies_to_filter.size(); i++){
 		shared_ptr<Canopy> canopy = canopies_to_filter[i];
-        if(canopy->neighbours.size() < 2){
-			delete canopy->center;
-			canopy->center = NULL;
+		if(canopy->neighbours.size() < 2){
 			canopy_indexes_to_remove.push_back(i);
         }
     }
@@ -221,11 +223,9 @@ void cag_filter_max_top3_sample_contributions(PRECISIONT max_single_data_point_p
     vector<int> canopy_indexes_to_remove;
 
     for(size_t  i=0; i < canopies_to_filter.size(); i++){
-        Point* ccenter = canopies_to_filter[i]->center;
+        Point* ccenter = canopies_to_filter[i]->center.get();
         //if(! ccenter->check_if_single_point_proportion_is_smaller_than(max_single_data_point_proportion) ){
         if(! ccenter->check_if_top_three_point_proportion_is_smaller_than(max_single_data_point_proportion) ){
-			delete ccenter;
-			canopies_to_filter[i]->center = NULL;
 			canopy_indexes_to_remove.push_back(i);
         }
     }
@@ -244,7 +244,7 @@ void filter_clusters_by_zero_medians(int min_num_non_zero_medians,
     vector<int> canopy_indexes_to_remove;
 
     for(size_t  i=0; i < canopies_to_filter.size(); i++){
-		Point* ccenter = canopies_to_filter[i]->center;
+		Point* ccenter = canopies_to_filter[i]->center.get();
         if(! ccenter->check_if_num_non_zero_samples_is_greater_than_x(min_num_non_zero_medians) ){
             canopy_indexes_to_remove.push_back(i);
         }
@@ -260,7 +260,7 @@ void filter_clusters_by_zero_medians(int min_num_non_zero_medians,
 
 
 
-void shuffle_points(vector< Point*>& points, vector<string>& priority_read_names){
+void shuffle_points(vector< Point*>& points, vector<string>& priority_read_names, unsigned int rng_seed){
 
     //Copy the read names from the vector into a map, we will be checking if the reads from the input file are in it and which position they should have
     std::map<string, int> priority_read_name__to_position;
@@ -292,7 +292,7 @@ void shuffle_points(vector< Point*>& points, vector<string>& priority_read_names
     //Now shuffle the non prioritized pionts
 	// deprecated in C++14
     //std::random_shuffle(first_non_priority_pint_it, points.end());
-	std::random_device rd;std::mt19937 mt_g(rd());
+	std::mt19937 mt_g(rng_seed);
 
 	std::shuffle(first_non_priority_pint_it, points.end(), mt_g);
 
@@ -300,22 +300,22 @@ void shuffle_points(vector< Point*>& points, vector<string>& priority_read_names
 }
 
 std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& points,
-	vector<string>& priority_read_names, options* opt, 
+	vector<string>& priority_read_names, const options& opt,
 	const vector<bool> rm, int deletedSmpls,
 	TimeProfile& time_profile){
 
 	//establish parameters
-	int num_threads = opt->num_threads;
-	PRECISIONT max_canopy_dist = opt->max_canopy_dist;
-	PRECISIONT max_close_dist = opt->max_close_dist;
-	PRECISIONT max_merge_dist = opt->max_merge_dist;
-	PRECISIONT min_step_dist = opt->min_step_dist;
-	int max_num_canopy_walks = opt->max_num_canopy_walks;
-	PRECISIONT stop_after_num_seeds_processed = opt->stop_after_num_seeds_processed;
-	bool create_canopy_size_stats  = !opt->dont_create_progress_stat_file;
-	bool show_progress_bar = opt->show_progress_bar;
-	string canopy_size_stats_fp = opt->progress_stat_file;
-	string not_processed_points_fp = opt->not_processed_profiles_file;
+	PRECISIONT max_canopy_dist = opt.max_canopy_dist;
+	PRECISIONT max_close_dist = opt.max_close_dist;
+	PRECISIONT max_merge_dist = opt.max_merge_dist;
+	PRECISIONT min_step_dist = opt.min_step_dist;
+	int max_num_canopy_walks = opt.max_num_canopy_walks;
+	const int num_threads = opt.num_threads;
+	int stop_after_num_seeds_processed = opt.stop_after_num_seeds_processed;
+	bool create_canopy_size_stats  = !opt.dont_create_progress_stat_file;
+	bool show_progress_bar = opt.show_progress_bar;
+	string canopy_size_stats_fp = opt.progress_stat_file;
+	string not_processed_points_fp = opt.not_processed_profiles_file;
 
     _log(logINFO) << "";
     _log(logINFO) << "Algorithm Parameters:";
@@ -334,7 +334,7 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
     _log(logPROGRESS) << "";
     _log(logPROGRESS) << "############ Shuffling ############";
     time_profile.start_timer("Shuffling");
-    shuffle_points(points, priority_read_names);
+	shuffle_points(points, priority_read_names, static_cast<unsigned int>(opt.RNG_Seed));
     time_profile.stop_timer("Shuffling");
 
     _log(logPROGRESS) << "";
@@ -348,7 +348,6 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
 //#pragma ide diagnostic ignored "TemplateArgumentsIssues" //Clion is messing up, the set declaration is fine
     std::unordered_set< Point*> marked_points;//Points that should not be investigated as origins
 //#pragma clang diagnostic pop
-    vector<unsigned int> canopy_size_per_origin_num;//Contains size of the canopy created from origin by it's number, so first origin gave canopy of size 5, second origin gave canopy of size 8 and so on
     int last_progress_displayed_at_num_points = 0;
 
     std::vector<shared_ptr<Canopy>> canopy_vector;
@@ -363,8 +362,13 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
         
     ofstream canopy_size_stats_file;
 
-    if(create_canopy_size_stats)
-        canopy_size_stats_file.open(canopy_size_stats_fp.c_str(), ios::out | ios::trunc);
+	if(create_canopy_size_stats) {
+		canopy_size_stats_file.open(canopy_size_stats_fp.c_str(), ios::out | ios::trunc);
+		if (!canopy_size_stats_file.is_open()) {
+			cerr << "Could not open progress statistics file: " << canopy_size_stats_fp << "\n";
+			exit(1);
+		}
+	}
 
     int canopy_stats_row_num = 0;
 
@@ -379,89 +383,108 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
         stop_after_num_seeds_processed = points.size();
     }
 
-#pragma omp parallel for shared(marked_points, canopy_vector, num_canopy_jumps, canopy_size_per_origin_num, num_collisions, num_seeds_processed, canopy_stats_row_num, terminate_called, first_non_processed_origin_due_interruption) firstprivate(close_points, max_canopy_dist, max_close_dist, max_merge_dist, min_step_dist, last_progress_displayed_at_num_points) schedule(dynamic)
-    for(size_t  origin_i = 0; origin_i < points.size(); origin_i++){
-        //Early stopping after num of points
-        if(num_seeds_processed > stop_after_num_seeds_processed){
-            continue;
-        }
-
-        //Stop if exit signal received
-        if(terminate_called){
-            if(first_non_processed_origin_due_interruption > origin_i){
-#pragma omp critical
-                {
-                    first_non_processed_origin_due_interruption = origin_i;
-                }
-            }
-            continue;
-        }
-
-		Point* origin = points[origin_i]; 
-		if (!origin->precomputed) { cerr << "Precomputation missing!\n"; exit(723); }
-
-		bool origin_already_marked = false;
-#pragma omp critical
-		{
-			origin_already_marked = (marked_points.find(origin) != marked_points.end());
+	// Canopy construction is pure for a given origin, but committing a canopy
+	// marks later origins. Build a bounded batch concurrently, then commit it in
+	// shuffled-origin order. This retains parallel distance work while making
+	// cluster membership independent of worker completion order and thread count.
+	size_t next_origin_i = 0;
+	bool stop_processing = false;
+	while (next_origin_i < points.size() && !stop_processing) {
+		if (terminate_called) {
+			first_non_processed_origin_due_interruption = next_origin_i;
+			break;
 		}
-		if(origin_already_marked)
+		if (num_seeds_processed >= stop_after_num_seeds_processed) {
+			break;
+		}
+
+		vector<size_t> candidate_indexes;
+		candidate_indexes.reserve(num_threads);
+		while (next_origin_i < points.size() &&
+			candidate_indexes.size() < static_cast<size_t>(num_threads)) {
+			const size_t candidate_i = next_origin_i++;
+			if (marked_points.find(points[candidate_i]) != marked_points.end()) {
+				num_collisions++;
+				continue;
+			}
+			candidate_indexes.push_back(candidate_i);
+		}
+		if (candidate_indexes.empty()) {
 			continue;
+		}
 
-        //Show progress bar
-        {
-            //Only master thread executes this
-			if(omp_get_thread_num() == 0){
-                if(log_level >= logPROGRESS && show_progress_bar){
-                    if(marked_points.size() > last_progress_displayed_at_num_points + stop_after_num_seeds_processed/100){
-						printProgBar((int)marked_points.size(), (int)stop_after_num_seeds_processed);
-						last_progress_displayed_at_num_points = (int)marked_points.size();
-                    }
-                }
-            }
-        }
+		vector<shared_ptr<Canopy>> candidate_canopies(candidate_indexes.size());
+		vector<int> candidate_jumps(candidate_indexes.size(), 0);
+#pragma omp parallel for schedule(static) num_threads(num_threads)
+		for (int candidate_pos = 0;
+			candidate_pos < static_cast<int>(candidate_indexes.size()); candidate_pos++) {
+			const size_t origin_i = candidate_indexes[candidate_pos];
+			Point* origin = points[origin_i];
+			if (!origin->precomputed) {
+				cerr << "Precomputation missing!\n";
+				exit(723);
+			}
+			vector<Point*> local_close_points;
+			candidate_canopies[candidate_pos] = canopy_walk(origin, points,
+				local_close_points, max_canopy_dist, max_close_dist, min_step_dist,
+				max_num_canopy_walks, candidate_jumps[candidate_pos], deletedSmpls);
+		}
 
+		for (size_t candidate_pos = 0; candidate_pos < candidate_indexes.size();
+			candidate_pos++) {
+			const size_t origin_i = candidate_indexes[candidate_pos];
+			if (terminate_called) {
+				first_non_processed_origin_due_interruption = origin_i;
+				stop_processing = true;
+				break;
+			}
+			if (num_seeds_processed >= stop_after_num_seeds_processed) {
+				stop_processing = true;
+				break;
+			}
 
+			Point* origin = points[origin_i];
+			if (marked_points.find(origin) != marked_points.end()) {
+				num_collisions++;
+				continue;
+			}
+			num_seeds_processed++;
+			num_canopy_jumps += candidate_jumps[candidate_pos];
+			shared_ptr<Canopy> final_canopy = candidate_canopies[candidate_pos];
 
+			const size_t marked_count_before = marked_points.size();
+			_log(logDEBUG) << "Unmarked points count: "
+				<< points.size() - marked_count_before << " Marked points count: "
+				<< marked_count_before;
+			_log(logDEBUG) << "points.size: " << points.size() << " origin_i: "
+				<< origin_i << " origin->id: " << origin->id;
+			_log(logDEBUG1) << "Current canopy origin: " << origin->id;
 
-        {
-            _log(logDEBUG) << "Unmarked points count: " << points.size() - marked_points.size() << " Marked points count: " << marked_points.size();
-            _log(logDEBUG) << "points.size: " << points.size() << " origin_i: " << origin_i << " origin->id: " << origin->id ;
+			marked_points.insert(origin);
+			canopy_vector.push_back(final_canopy);
+			for (Point* neighbour : final_canopy->neighbours) {
+				marked_points.insert(neighbour);
+			}
 
-            _log(logDEBUG1) << "Current canopy origin: " << origin->id;
-        }
-		//keepProfileStable
-		shared_ptr<Canopy> final_canopy = canopy_walk(origin, points, close_points, max_canopy_dist,
-			max_close_dist, min_step_dist, max_num_canopy_walks, num_canopy_jumps, deletedSmpls);
-
-#pragma omp critical
-        {
-            //Do not commit anything if by chance another thread marked the current origin
-            if(marked_points.find(origin) == marked_points.end()){
-
-                //Add canopy
-                marked_points.insert(origin);
-
-                canopy_vector.push_back(final_canopy);
-
-                for(Point* n : final_canopy->neighbours){
-                    marked_points.insert(n);
-                }
-
-                //Statistics showing size of canopies per analyzed origin
-                if(canopy_size_stats_file.is_open()){
-                    canopy_size_stats_file << canopy_stats_row_num++  << "\t" << points.size() - marked_points.size() << "\t" << final_canopy->neighbours.size() << "\t" << num_collisions << endl;
-                }
-
-            } else {
-                num_collisions++;
-            }
-
-            num_seeds_processed += 1;
-
-        }
-
-    }
+			if (canopy_size_stats_file.is_open()) {
+				canopy_size_stats_file << canopy_stats_row_num++ << "\t"
+					<< points.size() - marked_points.size() << "\t"
+					<< final_canopy->neighbours.size() << "\t" << num_collisions
+					<< endl;
+			}
+			if (log_level >= logPROGRESS && show_progress_bar) {
+				const int progress_step = std::max(1,
+					stop_after_num_seeds_processed / 100);
+				if (static_cast<int>(marked_points.size()) >=
+					last_progress_displayed_at_num_points + progress_step) {
+					printProgBar(static_cast<int>(marked_points.size()),
+						stop_after_num_seeds_processed);
+					last_progress_displayed_at_num_points =
+						static_cast<int>(marked_points.size());
+				}
+			}
+		}
+	}
     if(canopy_size_stats_file.is_open())
         canopy_size_stats_file.close();
 
@@ -473,14 +496,21 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
         cout << "first_non_processed_origin_due_interruption:" << first_non_processed_origin_due_interruption << endl; 
 
         ofstream not_processed_points_file;
-        not_processed_points_file.open(not_processed_points_fp.c_str(), ios::out | ios::trunc);
-        for(size_t  i = first_non_processed_origin_due_interruption; i < points.size(); i++){
+		not_processed_points_file.open(not_processed_points_fp.c_str(), ios::out | ios::trunc);
+		if (!not_processed_points_file.is_open()) {
+			cerr << "Could not open unprocessed-profile output file: " << not_processed_points_fp << "\n";
+			exit(1);
+		}
+		for(size_t  i = first_non_processed_origin_due_interruption; i < points.size(); i++){
 			Point* point = points[i];
-            if(marked_points.find(point) == marked_points.end()){
-                not_processed_points_file << point->id;
-                for(int j = 0; j < point->num_data_samples; j++){
-                    not_processed_points_file << "\t" << point->sample_data[j];
-                }
+			if(marked_points.find(point) == marked_points.end()){
+				not_processed_points_file << point->id;
+				const int original_sample_count = point->num_data_samples + deletedSmpls;
+				for(int j = 0; j < original_sample_count; j++){
+					const PRECISIONT value = (j < static_cast<int>(rm.size()) && rm[j])
+						? point->getDataRm(j) : point->getData(j);
+					not_processed_points_file << "\t" << value;
+				}
                 not_processed_points_file << "\n";
             }
         }
@@ -541,7 +571,7 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
 
 			shared_ptr<Canopy> c2 = canopy_vector[i];
 
-            PRECISIONT dist = get_distance_between_points(c->center, c2->center);
+            PRECISIONT dist = get_distance_between_points(c->center.get(), c2->center.get());
 
             if(dist < max_merge_dist){
 //#pragma omp critical
@@ -566,9 +596,9 @@ std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& po
             }
 
             //Create new canopy
-			Point* temp_merged_canopy_origin = get_centroid_of_points(all_points_from_merged_canopies,
-				deletedSmpls);
-			shared_ptr<Canopy> merged_canopy = canopy_walk(temp_merged_canopy_origin, all_points_from_merged_canopies,
+			unique_ptr<Point> temp_merged_canopy_origin =
+				get_centroid_of_points(all_points_from_merged_canopies, deletedSmpls);
+			shared_ptr<Canopy> merged_canopy = canopy_walk(temp_merged_canopy_origin.get(), all_points_from_merged_canopies,
 				close_points, max_canopy_dist, max_close_dist, min_step_dist, max_num_canopy_walks, 
 				num_canopy_jumps, deletedSmpls);
 
@@ -690,7 +720,7 @@ void multi_core_run_correlations(vector< Point*>& points,
 
 	int totalSteps = guides.size();
 	//thread pool
-	vector < job > slots(num_threads+1);
+	vector < job > slots(num_threads);
 	int j = 0; int origin_i = 0;
 	while (true) {
 		//show progress
@@ -704,7 +734,7 @@ void multi_core_run_correlations(vector< Point*>& points,
 		if (origin_i >= totalSteps) { break; }
 //		create_canopy_singl(guides[origin_i], points, max_canopy_dist, partial, origin_i);
 //		continue;
-		if (j > num_threads) { j = 0; }
+		if (j >= num_threads) { j = 0; }
 		if (slots[j].inUse == true && slots[j].fut.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
 			slots[j].inUse = false;
 			shared_ptr<Canopy> cc = slots[j].fut.get();
@@ -720,7 +750,7 @@ void multi_core_run_correlations(vector< Point*>& points,
 		j++;
 	}
 	//farm remaining threads
-	for (int j = 0; j < num_threads; j++) {
+	for (size_t j = 0; j < slots.size(); j++) {
 		if (slots[j].inUse == true ) {
 			shared_ptr<Canopy> cc = slots[j].fut.get();
 			canopy_vector[cc->get_ori()] = cc;
@@ -744,13 +774,13 @@ void multi_core_run_correlations(vector< Point*>& points,
 
 }
 
-void filter(options * opt, TimeProfile time_profile, vector<Point*>& points,
-	vector<Point*>& guidePoints, vector<Point*>& filtered_points) {
+void filter(const options& opt, TimeProfile& time_profile, vector<Point*>& points,
+	vector<std::unique_ptr<Point>>& point_owners, vector<Point*>& guidePoints,
+	vector<Point*>& filtered_points) {
 
-	int filter_min_obs = opt->filter_min_obs;
-	double filter_max_top3_sample_contribution = opt->filter_max_top3_sample_contribution;
-	bool use_spearman = opt->use_spearman;
-	string input_filter_file = opt->input_filter_file;
+	int filter_min_obs = opt.filter_min_obs;
+	double filter_max_top3_sample_contribution = opt.filter_max_top3_sample_contribution;
+	string input_filter_file = opt.input_filter_file;
 
 	_log(logINFO) << "Running basic validation of profiles";
 	_log(logINFO) << "filter_max_top3_sample_contribution:\t " << filter_max_top3_sample_contribution;
@@ -767,12 +797,6 @@ void filter(options * opt, TimeProfile time_profile, vector<Point*>& points,
 
 	time_profile.start_timer("Input profiles filtering");
 	if ((filter_min_obs == 0) && (filter_max_top3_sample_contribution > 0.9999)) {//all filters deactivated
-		if (use_spearman) {
-#pragma omp parallel for shared(points)
-			for (size_t i = 0; i < points.size(); i++) {
-				points[i]->convert_to_rank();
-			}
-		}
 		filtered_points = points;
 
 	}
@@ -838,9 +862,20 @@ void filter(options * opt, TimeProfile time_profile, vector<Point*>& points,
 			}
 		}
 	}
+	// Parallel filtering completes in scheduler order. Restore input order so
+	// autocorrelation and seeded shuffling receive the same profile sequence
+	// regardless of the OpenMP thread count.
+	std::sort(filtered_points.begin(), filtered_points.end(),
+		[](const Point* lhs, const Point* rhs) {
+			return lhs->lineCnt < rhs->lineCnt;
+		});
 	if (input_filter_file != "") {
 		ofstream filtered_point_file;
 		filtered_point_file.open(input_filter_file.c_str(), ios::out | ios::trunc);
+		if (!filtered_point_file.is_open()) {
+			cerr << "Could not open filtered-profile output file: " << input_filter_file << "\n";
+			exit(1);
+		}
 		filtered_point_file << "#filtered_profile_id\tinput_filter_name\n";
 		for (size_t i = 0; i < points_filtered_out_due_to_num_non_zero_samples_filter.size(); i++) {
 			filtered_point_file << points_filtered_out_due_to_num_non_zero_samples_filter[i]->id << "\t" << "min_observations_filter" << "\n";
@@ -863,7 +898,11 @@ void filter(options * opt, TimeProfile time_profile, vector<Point*>& points,
 	//Sometimes these filters will remove over 50% of the dataset, let's free filtered out points now
 	_log(logINFO) << "Relseasing filtered out points";
 	for (auto p : filtered_out_points) {
-		delete p;
+		const size_t owner_i = static_cast<size_t>(p->lineCnt);
+		if (owner_i >= point_owners.size() || point_owners[owner_i].get() != p) {
+			throw runtime_error("Input profile ownership invariant was violated");
+		}
+		point_owners[owner_i].reset();
 	}
 
 	_log(logINFO) << "Relseasing filtered out points: Done";
@@ -892,55 +931,73 @@ int handleRms(vector<Point*>& points, const vector<bool>& rm) {
 	return sumRm;
 }
 
-bool readMB2preSet(options*opt, vector<Point*>& GP, vector<Point*>& points){
+bool readMB2preSet(const options& opt, vector<Point*>& GP,
+	vector<std::unique_ptr<Point>>& guide_point_owners, vector<Point*>& points){
 //this is like a guide matrix.. just needs to create the profile itself
-	if (opt->refMB2 == "") {
+	if (opt.refMB2 == "") {
 		return false;
 	}
-	if (opt->guide_matrix_file != "") {
+	if (opt.guide_matrix_file != "") {
 		std::cerr << "Guide Matrix and MB2 file were both defined, this is not supported\n";
 		exit(82);
 	}
-	uint MaxNumGenes = (uint)opt->refMB2_maxGenes;
-	std::ifstream point_file(opt->refMB2);
+	uint MaxNumGenes = (uint)opt.refMB2_maxGenes;
+	std::ifstream point_file(opt.refMB2);
 	if (!point_file) { std::cerr << "Can't open MB2 ref file\n"; exit(23); }
 	std::string line;
 
 	//create index for points vector
 	robin_hood::unordered_map<string, uint> p_idx;
 	for (size_t i = 0; i < points.size();i++) {
-		p_idx[points[i]->id] = i;
+		if (points[i] == NULL || points[i]->id.empty()) {
+			cerr << "Invalid null or unnamed profile in input matrix\n";
+			exit(23);
+		}
+		if (!p_idx.emplace(points[i]->id, static_cast<uint>(i)).second) {
+			cerr << "Duplicate profile ID in input matrix: " << points[i]->id << "\n";
+			exit(23);
+		}
 	}
 
 	//store genes belonging to bin
 	string curBin = "";
 	//vector<string> curMem(0);
 	vector<Point*> pointColl(0);
+	unordered_set<string> completed_bins;
 	int lcnt = 0;
-	bool use_spearman = opt->use_spearman;
+	bool use_spearman = opt.use_spearman;
 
 	while (std::getline(point_file, line)) {
 		lcnt++;
-		if (line.length() < 2) {
-			std::cerr << "break it\n";
-			break;
+		if (line.empty()) {
+			continue;
 		}
 		vector<string> xx = splitByCommas(line, '\t');
+		if (xx.size() < 2 || xx[0].empty() || xx[1].empty()) {
+			cerr << "Malformed MetaBAT2 reference row " << lcnt << ": expected bin and gene ID\n";
+			exit(23);
+		}
 		if (xx[0] != curBin) {//next Bin in start file.. finish up by creating initial canopy
 			if (pointColl.size() > 0) {
-				Canopy canTmp = Canopy(pointColl, 0);
+				Canopy canTmp(pointColl, 0);
 				//create a canopy center for these points..
-				Point * pp = new Point(canTmp.center, 0);
+				std::unique_ptr<Point> pp(new Point(canTmp.center.get(), 0));
 				if (use_spearman) { pp->convert_to_rank(); }
 				pp->seal();
 				pp->id = curBin;
-				GP.push_back(pp);
+				GP.push_back(pp.get());
+				guide_point_owners.push_back(std::move(pp));
+				completed_bins.insert(curBin);
 			}
 			//reset
+			if (completed_bins.find(xx[0]) != completed_bins.end()) {
+				cerr << "MetaBAT2 reference must group each bin contiguously: " << xx[0] << "\n";
+				exit(23);
+			}
 			curBin = xx[0]; pointColl.clear();
 		}
 
-		if (pointColl.size() > MaxNumGenes) { continue; }
+		if (pointColl.size() >= MaxNumGenes) { continue; }
 		auto fr = p_idx.find(xx[1]);
 		if (fr == p_idx.end()) {
 			cerr << "Unknown gene in reference, that is not represented in gene matrix: " << xx[1] << "\n";
@@ -955,13 +1012,18 @@ bool readMB2preSet(options*opt, vector<Point*>& GP, vector<Point*>& points){
 
 	point_file.close();
 //add final canopy
-	Canopy canTmp = Canopy(pointColl, 0);
+	if (pointColl.empty()) {
+		cerr << "MetaBAT2 reference did not contain any usable bin members\n";
+		exit(23);
+	}
+	Canopy canTmp(pointColl, 0);
 	//create a canopy center for these points..
-	Point * pp = new Point(canTmp.center, 0);
+	std::unique_ptr<Point> pp(new Point(canTmp.center.get(), 0));
 	if (use_spearman) { pp->convert_to_rank(); }
 	pp->seal();
 	pp->id = curBin;
-	GP.push_back(pp);
+	GP.push_back(pp.get());
+	guide_point_owners.push_back(std::move(pp));
 
 
 	std::cerr << "line count: " << lcnt << endl;
@@ -970,12 +1032,12 @@ bool readMB2preSet(options*opt, vector<Point*>& GP, vector<Point*>& points){
 }
 
 //this routine scans for autocorrelated samples (and removes these)
-vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vector<Point*>& points,
+vector<bool> autocorr_filter(const options& opt, TimeProfile& time_profile, const vector<Point*>& points,
 	const vector<PRECISIONT>& sampleSums) {
 	//look which samples are too close and mark down for filtering
-	PRECISIONT bound = opt->sampleMinDist;
+	PRECISIONT bound = opt.sampleMinDist;
 	if (bound >= 2) { vector<bool> rmT(0);  return rmT; }
-	time_profile.start_timer("Input profiles filtering");
+	time_profile.start_timer("Autocorrelation sample filtering");
 	_log(logINFO) << "Filtering autocorrelated samples";
 
 	if (!points[0]->sparse) { cerr << "Autocorrelation only implemented for sparse data\n"; exit(232); }
@@ -992,7 +1054,10 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 	Comparator compFunctor =
 		[](std::pair<int, PRECISIONT> elem1, std::pair<int, PRECISIONT> elem2)
 	{
-		return elem1.second > elem2.second;
+		if (elem1.second != elem2.second) {
+			return elem1.second > elem2.second;
+		}
+		return elem1.first < elem2.first;
 	};
 	_log(logINFO) << "Transposed matrix";
 
@@ -1012,7 +1077,7 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 		for (pair<int, PRECISIONT> ele : setOfWords) {
 			abPointsF[j][ele.first] = ele.second;
 			cnt++;
-			if (cnt > MaxEntries) { break; }
+			if (cnt >= MaxEntries) { break; }
 		}
 	}
 
@@ -1024,78 +1089,67 @@ vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, const vect
 	_log(logINFO) << "Filtered "<< MaxEntries<<" largest entries";
 	//now calculate correlations among samples..
 	//abPointsF = abPoints;
-	int num_threads = opt->num_threads;
+	int num_threads = opt.num_threads;
 	if (num_threads > nmSmpls) {
 		num_threads = nmSmpls;
 	}
-	double nmSmpls_d = (double)nmSmpls;
-//	double nrows_d = double(nrows);
+	if (nmSmpls < 2) {
+		cerr << "Autocorrelation filtering requires at least two samples.\n";
+		exit(1);
+	}
 	vector<bool> rm(abPointsF.size(), false);
-	int cntRm(0);
 	vector<vector<PRECISIONT>> corrs(abPointsF.size(), vector<PRECISIONT>(abPointsF.size(),0));
-	vector < jobCor > slots(num_threads);
-	int j = 0; 
-	for (int i=0;i< nmSmpls;i++){
-		if (rm[i]) { continue; }
-		//get_distance_between_umaps_v (abPointsF, i, nmSmpls); continue;
-		while (true) {
-			if (j >= num_threads) { j = 0; }
-			if (!slots[j].inUse) {				break;			}
-			else if (slots[j].fut.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-				slots[j].inUse = false;
-				smplCor tmp = slots[j].fut.get();
-				for (uint f = 0; f < tmp.dist.size(); f++) {
-					corrs[tmp.i[f]][tmp.k[f]] = tmp.dist[f];
-					if (tmp.dist[f] < bound) {//needs to be filtered
-						//decide which sample has more depth
-						if (sampleSums[tmp.i[f]] > sampleSums[tmp.k[f]]) {
-							rm[tmp.k[f]] = true;
-						}
-						else {
-							rm[tmp.i[f]] = true;
-						}
-						cntRm++;
-					}
-				}
-			}
-			else {
-				j++;
-			}
-		}
-		if (slots[j].inUse == false) {
-			//create_canopy_singl(origin, points, max_canopy_dist, partial)
-			slots[j].fut = async(std::launch::async, get_distance_between_umaps_v, ref(abPointsF), i, nmSmpls);
-			
-			//get_distance_between_umaps(abPointsF[i], abPointsF[k], nmSmpls_d, i, k);
-			slots[j].inUse = true;
-			j++;
+
+	// Calculate distances in parallel without making removal decisions.  This
+	// keeps the numerical work concurrent while making the selected samples
+	// independent of worker completion order and --num_threads.
+#pragma omp parallel for schedule(dynamic) num_threads(num_threads)
+	for (int i = 0; i < nmSmpls; i++) {
+		for (int k = i + 1; k < nmSmpls; k++) {
+			const PRECISIONT distance = get_distance_between_umaps(
+				abPointsF[i], abPointsF[k], static_cast<int>(points.size()));
+			corrs[i][k] = distance;
+			corrs[k][i] = distance;
 		}
 	}
-	for (uint j = 0; j < slots.size(); j++) {
-		if (slots[j].inUse) {
-			smplCor tmp = slots[j].fut.get();
-			slots[j].inUse = false;
-			for (uint f = 0; f < tmp.dist.size(); f++) {
-				corrs[tmp.i[f]][tmp.k[f]] = tmp.dist[f];
-				if (tmp.dist[f] < bound) {
-					if (sampleSums[tmp.i[f]] > sampleSums[tmp.k[f]]) {
-						rm[tmp.k[f]] = true;
-					}
-					else {
-						rm[tmp.i[f]] = true;
-					}
-					cntRm++;
-				}
+
+	// Prefer deeper samples.  Equal-depth samples are ordered by their input
+	// index, giving a stable and documented tie-break.  A removed sample never
+	// participates in further decisions, avoiding transitive over-removal.
+	vector<int> sample_priority(nmSmpls);
+	std::iota(sample_priority.begin(), sample_priority.end(), 0);
+	std::sort(sample_priority.begin(), sample_priority.end(),
+		[&sampleSums](int lhs, int rhs) {
+			if (sampleSums[lhs] != sampleSums[rhs]) {
+				return sampleSums[lhs] > sampleSums[rhs];
+			}
+			return lhs < rhs;
+		});
+	for (int priority_i = 0; priority_i < nmSmpls; priority_i++) {
+		const int retained_sample = sample_priority[priority_i];
+		if (rm[retained_sample]) {
+			continue;
+		}
+		for (int priority_k = priority_i + 1; priority_k < nmSmpls; priority_k++) {
+			const int candidate = sample_priority[priority_k];
+			if (!rm[candidate] && corrs[retained_sample][candidate] < bound) {
+				rm[candidate] = true;
 			}
 		}
+	}
+
+	const int cntRm = static_cast<int>(std::count(rm.begin(), rm.end(), true));
+	if (static_cast<int>(rm.size()) - cntRm < 2) {
+		cerr << "Autocorrelation filtering would leave fewer than two samples; lower --sampleMinDist.\n";
+		exit(1);
 	}
 	//write out matrix of sample correations (if requested)
-	writeMatrix(corrs, opt->sampleDistMatFile);
-	writeUsedSmpls(rm, opt->sampleDistLog);
+	writeMatrix(corrs, opt.sampleDistMatFile);
+	writeUsedSmpls(rm, opt.sampleDistLog);
 	
 	
 
-	time_profile.stop_timer("Input profiles filtering");
+	time_profile.stop_timer("Autocorrelation sample filtering");
 	_log(logINFO) << "Removed " << cntRm << " sample due to correlation distance < " << bound;
 	_log(logINFO) << "Done Filtering autocorrelated samples";
 	//vector<mvec>().swap(abPointsF); // delete vector
@@ -1110,6 +1164,7 @@ void writeUsedSmpls(vector<bool>& rm, string of) {
 	ofstream out(of.c_str(), ios::out);
 	if (!out) {
 		cerr << "Can't write to " << of << endl;
+		exit(1);
 	}
 	out << "Removed Samples (index):\n";
 	for (size_t i = 0; i < rm.size(); i++) {
@@ -1118,12 +1173,17 @@ void writeUsedSmpls(vector<bool>& rm, string of) {
 		}
 	}
 	out.close();
+	if (out.fail()) {
+		cerr << "Failed while writing " << of << endl;
+		exit(1);
+	}
 }
 void writeMatrix(vector<vector<PRECISIONT>>& mat, string of){
 	if (of == "") { return; }
 	ofstream out(of.c_str(), ios::out);
 	if (!out) {
 		cerr << "Can't write to " << of << endl;
+		exit(1);
 	}
 	_log(logINFO) << "Writing sample correlation matrix";
 	for (uint i = 0; i < mat.size(); i++) {
@@ -1134,5 +1194,9 @@ void writeMatrix(vector<vector<PRECISIONT>>& mat, string of){
 		out << endl;
 	}
 	out.close();
+	if (out.fail()) {
+		cerr << "Failed while writing " << of << endl;
+		exit(1);
+	}
 
 }

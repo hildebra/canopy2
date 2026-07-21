@@ -7,7 +7,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -51,7 +51,7 @@ void filter_redundant_genes(vector<shared_ptr<Canopy>>& cans, vector< Point*>& g
     * time_profile - TimeProfile object instance for gathering statistics on time it took for each of the analysis steps
 	*/
 std::vector<shared_ptr<Canopy>> multi_core_run_clustering_on(vector< Point*>& points,
-	vector<string>& priority_read_names, options* opt, const vector<bool> rm, int, TimeProfile& time_profile);
+	vector<string>& priority_read_names, const options& opt, const vector<bool> rm, int, TimeProfile& time_profile);
 
 /**
     * Create canopy given an origin point
@@ -85,25 +85,27 @@ shared_ptr<Canopy> create_canopy_singl(Point* origin, const vector< Point*>& poi
 shared_ptr<Canopy> canopy_walk(Point* origin, vector< Point*>& points,
 	vector< Point*>& close_points,
 	PRECISIONT max_canopy_dist, PRECISIONT max_close_dist, PRECISIONT min_step_dist, 
-	PRECISIONT max_num_canopy_walks, int& num_canopy_jumps,
+	int max_num_canopy_walks, int& num_canopy_jumps,
 	int deletedSmpls);
 
-void shuffle_points(vector< Point*>& points, vector<string>& priority_read_names);
+void shuffle_points(vector< Point*>& points, vector<string>& priority_read_names, unsigned int rng_seed);
 void filter_clusters_by_zero_medians(int min_num_non_zero_medians, vector<shared_ptr<Canopy>>& canopies_to_filter);
 void cag_filter_max_top3_sample_contributions(PRECISIONT max_single_data_point_proportion, 
 	vector<shared_ptr<Canopy>>& canopies_to_filter);
 void filter_clusters_by_size(std::vector<shared_ptr<Canopy>>& canopies_to_filter);
 
-void filter(options * opt, TimeProfile time_profile, vector<Point*>& points,
-	vector<Point*>& guidePoints, vector<Point*>& filtered_points);
+void filter(const options& opt, TimeProfile& time_profile, vector<Point*>& points,
+	vector<std::unique_ptr<Point>>& point_owners, vector<Point*>& guidePoints,
+	vector<Point*>& filtered_points);
 
 //function to read pre clustered genes from metabat2
-bool readMB2preSet(options*opt, vector<Point*>& GP, vector<Point*>& points);
+bool readMB2preSet(const options& opt, vector<Point*>& GP,
+	vector<std::unique_ptr<Point>>& guide_point_owners, vector<Point*>& points);
 
 void writeMatrix(vector<vector<PRECISIONT>>& mat, string of);
 void writeUsedSmpls(vector<bool>& rm, string of);
 
-vector<bool> autocorr_filter(options * opt, TimeProfile time_profile, 
+vector<bool> autocorr_filter(const options& opt, TimeProfile& time_profile,
 	const vector<Point*>& points, const vector<PRECISIONT>& sampleSums);
 int handleRms(vector<Point*>& points, const vector<bool>& rm);
 

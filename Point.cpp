@@ -8,7 +8,7 @@
  *
  * Metagenomics Canopy Clustering Implementation is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
  *
  * Metagenomics Canopy Clustering Implementation is distributed in the hope that it will be useful,
@@ -31,7 +31,7 @@
 
 //#include <boost/bind.hpp>
 //#include <boost/functional/hash.hpp>
-#//include <boost/algorithm/string.hpp>
+//#include <boost/algorithm/string.hpp>
 
 #include "Point.hpp"
 #include "Log.hpp"
@@ -43,66 +43,109 @@ using namespace std;
 
 extern ProfileMeasureType profile_measure;
 struct job2 {
-	std::future <Point*> fut;
+	std::future<std::unique_ptr<Point>> fut;
 	bool inUse = false;
 };
 
-Point* line2point(string line,bool sparseMat, bool use_spearman, int lcnt) {
-	Point * pp = new Point(line, sparseMat, lcnt);
-	if (use_spearman) {
-		pp->convert_to_rank();
-	}
+std::unique_ptr<Point> line2point(string line, bool sparseMat, int lcnt) {
+	std::unique_ptr<Point> pp(new Point(line, sparseMat, lcnt));
 	pp->seal();
 	return pp;
 
 }
 
-void readMatrix(vector<Point*>& points, vector<PRECISIONT>& sampleSums ,
-	string input_file_path, bool sparseMat,bool use_spearman, int num_threads) {
+void readMatrix(vector<Point*>& points, vector<std::unique_ptr<Point>>& point_owners,
+	vector<PRECISIONT>& sampleSums, string input_file_path, bool sparseMat,
+	int num_threads, bool dont_use_mmap) {
 
-	std::istream* point_file;
+	std::unique_ptr<std::istream> point_file;
 
 	if (isGZfile(input_file_path)) {
 #ifdef _gzipread
-		point_file = new igzstream(input_file_path.c_str(), ios::in); cout << "Reading gzip input\n";
+		point_file.reset(new igzstream(input_file_path.c_str(), ios::in));
+		cout << "Reading gzip input\n";
 #else
 		cout << "gzip not supported in your rtk build\n"; exit(50);
 #endif
 }
 	else {
-		point_file = new ifstream(input_file_path.c_str());
+		point_file.reset(new ifstream(input_file_path.c_str()));
 	}
+	if (!point_file || !(*point_file)) {
+		cerr << "Could not open input matrix: " << input_file_path << "\n";
+		exit(1);
+	}
+
 	std::string line;
-	//header.. empty read
-	getline((*point_file), line);
+	vector<string> buffered_lines;
+	size_t buffered_line_i = 0;
+	if (dont_use_mmap) {
+		_log(logINFO) << "Reading input matrix line by line";
+	}
+	else {
+		_log(logINFO) << "Reading input matrix into memory";
+		while (getline(*point_file, line)) {
+			buffered_lines.push_back(line);
+		}
+	}
+	auto get_next_line = [&](string& next_line) -> bool {
+		if (dont_use_mmap) {
+			return static_cast<bool>(getline(*point_file, next_line));
+		}
+		if (buffered_line_i >= buffered_lines.size()) {
+			return false;
+		}
+		next_line = buffered_lines[buffered_line_i++];
+		return true;
+	};
+
+	// The matrix format requires a header row.
+	if (!get_next_line(line)) {
+		cerr << "Input matrix is empty\n";
+		return;
+	}
 
 	vector<job2> slots(num_threads);
 	int j(0); int lcnt(0);
+	auto get_completed_point = [](
+		std::future<std::unique_ptr<Point>>& future) -> std::unique_ptr<Point> {
+		try {
+			return future.get();
+		}
+		catch (const std::exception& error) {
+			cerr << error.what() << "\n";
+			exit(1);
+		}
+	};
 	//vector<job2> fut(num_threads); int ji = 0;
 	while (true) {
 		
 		if (j >= num_threads) { j = 0; }
 		if (slots[j].inUse == true && slots[j].fut.wait_for(std::chrono::milliseconds(1)) == std::future_status::ready) {
 			slots[j].inUse = false;
-			Point * pp = slots[j].fut.get();
+			std::unique_ptr<Point> pp = get_completed_point(slots[j].fut);
 			//cout << pp->lineCnt << " ";
-			pp->addToVec(sampleSums);
-			if (pp->lineCnt >= points.size()) {
+			if (pp->lineCnt >= static_cast<int>(points.size())) {
 				points.resize(pp->lineCnt+1);
+				point_owners.resize(pp->lineCnt+1);
 			}
-			points[pp->lineCnt] = pp;
+			points[pp->lineCnt] = pp.get();
+			point_owners[pp->lineCnt] = std::move(pp);
 			//points.push_back(pp);
 		}
 		if (slots[j].inUse == false) {
-			//string line = safeGetline2(in);
-			getline((*point_file), line);
-			if (!(*point_file)) { break; }
-			if (line.length() < 2) { continue; }
+			bool have_data_line = false;
+			while (get_next_line(line)) {
+				if (line.length() >= 2) {
+					have_data_line = true;
+					break;
+				}
+			}
+			if (!have_data_line) { break; }
 			//line2point(line,sparseMat, use_spearman);
 			//cout << line<<endl;
 			string lineC = line;
-			slots[j].fut = async(std::launch::async, line2point, lineC, sparseMat,  
-				use_spearman, lcnt);
+			slots[j].fut = async(std::launch::async, line2point, lineC, sparseMat, lcnt);
 			slots[j].inUse = true;
 			lcnt++;
 		}
@@ -114,16 +157,28 @@ void readMatrix(vector<Point*>& points, vector<PRECISIONT>& sampleSums ,
 	for (j = 0; j < num_threads; j++) {
 		if (slots[j].inUse == true) {
 			slots[j].inUse = false;
-			Point * pp = slots[j].fut.get();
-			pp->addToVec(sampleSums);
-			points.push_back(pp);
+			std::unique_ptr<Point> pp = get_completed_point(slots[j].fut);
+			if (pp->lineCnt >= static_cast<int>(points.size())) {
+				points.resize(pp->lineCnt + 1, nullptr);
+				point_owners.resize(pp->lineCnt + 1);
+			}
+			points[pp->lineCnt] = pp.get();
+			point_owners[pp->lineCnt] = std::move(pp);
 		}
 	}
-	delete point_file;
+
+	// Aggregate in input order rather than future-completion order. Besides
+	// producing repeatable floating-point sums, this makes autocorrelation
+	// sample priorities identical between input modes and thread counts.
+	sampleSums.clear();
+	for (Point* point : points) {
+		if (point != NULL) {
+			point->addToVec(sampleSums);
+		}
+	}
 
 	cerr << "Read " << lcnt << " rows\n";
 }
-
 
 Point::Point( Point* p, int deletedSmpls):sample_data(NULL),
 #ifdef PRECARRAY
@@ -131,18 +186,21 @@ sample_data_pearson_precomputed(NULL),
 #else
 SumD(0),StdDev(0),
 #endif
+			num_data_samples(p->num_data_samples), lineCnt(p->lineCnt),
 			precomputed(false), sparse(p->sparse){
-	
-	id = p->id;
-    num_data_samples = p->num_data_samples + deletedSmpls;
+	(void)deletedSmpls;
 
-    sample_data = new PRECISIONT[num_data_samples];
+	id = p->id;
+
 	if (sparse) {
-		for (int i = 0; i < num_data_samples; i++) {
-			sample_data[i] = p->getDataSparse(i);
-		}
+		// Sparse keys retain their original sample indexes while
+		// num_data_samples records only the observations used for
+		// correlations. Copy the maps directly so those two concepts do not
+		// become conflated after autocorrelation filtering.
+		sp_data = p->sp_data;
 	}
 	else {
+		sample_data = new PRECISIONT[num_data_samples];
 		for (int i = 0; i < num_data_samples; i++) {
 			sample_data[i] = p->sample_data[i];
 		}
@@ -187,14 +245,23 @@ Point::~Point() {
 	}
 #endif
 }
-Point::Point(string line,bool sp, int lc):sample_data(NULL), 
+Point::Point(string line,bool sp, int lc):sample_data(NULL),
 #ifdef PRECARRAY
 sample_data_pearson_precomputed(NULL),
 #else
 SumD(0), StdDev(0),
 #endif
-num_data_samples(0),precomputed(false),sparse(sp), lineCnt(lc)
+num_data_samples(0), lineCnt(lc), precomputed(false), sparse(sp)
 {
+	auto parse_error = [&](const string& message) {
+		throw runtime_error("Invalid profile on input row " + to_string(lc + 2) + ": " + message);
+	};
+	if (line.empty()) {
+		parse_error("empty row");
+	}
+	if (line[line.size() - 1] == '\t') {
+		parse_error("trailing empty sample field");
+	}
 	stringstream ss;
 	ss << line;
 	int cnt2(-2);
@@ -206,9 +273,27 @@ num_data_samples(0),precomputed(false),sparse(sp), lineCnt(lc)
 		cnt2++;
 		if (cnt2 == -1) {//this is the row ID
 			id = segments;
+			if (id.empty()) {
+				parse_error("empty profile ID");
+			}
 			continue;
 		}
-		sample_data_vector.push_back((PRECISIONT)atof(segments.c_str()));
+		char* end = NULL;
+		errno = 0;
+		const char* value = segments.c_str();
+		double parsed = strtod(value, &end);
+		if (segments.empty() || end == value || *end != '\0' || errno == ERANGE ||
+			!std::isfinite(parsed) || parsed < 0) {
+			parse_error("invalid non-negative numeric value '" + segments + "'");
+		}
+		const PRECISIONT stored_value = static_cast<PRECISIONT>(parsed);
+		if (!std::isfinite(stored_value)) {
+			parse_error("numeric value is outside the configured precision range");
+		}
+		sample_data_vector.push_back(stored_value);
+	}
+	if (sample_data_vector.empty()) {
+		parse_error("profile has no sample values");
 	}
 	num_data_samples = sample_data_vector.size();
 	sample_data = new PRECISIONT[num_data_samples];
@@ -280,20 +365,25 @@ vector<PRECISIONT> Point::rankSort(const PRECISIONT* v_temp, const size_t size) 
 
 	sort(v_sort.begin(), v_sort.end());
 
-	pair<double, size_t> rank;
 	vector<PRECISIONT> result(size);
 
-	for (size_t i = 0U; i < size; ++i) {
-		if (v_sort[i].first != rank.first) {
-			rank = make_pair(v_sort[i].first, i);
+	for (size_t group_begin = 0; group_begin < size;) {
+		size_t group_end = group_begin + 1;
+		while (group_end < size && v_sort[group_end].first == v_sort[group_begin].first) {
+			group_end++;
 		}
-		result[v_sort[i].second] = rank.second;
+		const PRECISIONT average_rank = static_cast<PRECISIONT>(group_begin + group_end - 1) /
+			static_cast<PRECISIONT>(2);
+		for (size_t i = group_begin; i < group_end; ++i) {
+			result[v_sort[i].second] = average_rank;
+		}
+		group_begin = group_end;
 	}
 	return result;
 }
 
 void Point::seal() {
-	if (sparse) {
+	if (sparse && sample_data != NULL) {
 		for (int i = 0; i < num_data_samples; i++) {
 //			if (sample_data[i] != 0) {
 			if (sample_data[i] > 1e-15) { //take compputational inaccuracy into account..
@@ -307,11 +397,65 @@ void Point::seal() {
 }
 
 void Point::convert_to_rank(){
-	vector<PRECISIONT> tmp = rankSort(sample_data,num_data_samples);
-	for (int i = 0; i < num_data_samples; i++) {
-		sample_data[i] = tmp[i];
+	vector<bool> removed_samples(num_data_samples, false);
+	convert_to_rank(removed_samples);
+}
+
+void Point::convert_to_rank(const vector<bool>& removed_samples){
+	if (removed_samples.size() != static_cast<size_t>(num_data_samples)) {
+		throw runtime_error("Rank conversion received an invalid sample-removal mask");
+	}
+	vector<PRECISIONT> original(num_data_samples, 0);
+	if (sample_data != NULL) {
+		for (int i = 0; i < num_data_samples; i++) {
+			original[i] = sample_data[i];
+		}
+	}
+	else if (sparse) {
+		for (auto value : sp_data) {
+			if (value.first >= 0 && value.first < num_data_samples) {
+				original[value.first] = value.second;
+			}
+		}
+	}
+	else {
+		throw runtime_error("Cannot rank a point without sample data");
 	}
 
+	vector<PRECISIONT> retained_values;
+	vector<int> retained_indexes;
+	retained_values.reserve(num_data_samples);
+	retained_indexes.reserve(num_data_samples);
+	for (int i = 0; i < num_data_samples; ++i) {
+		if (!removed_samples[i]) {
+			retained_values.push_back(original[i]);
+			retained_indexes.push_back(i);
+		}
+	}
+	if (retained_values.empty()) {
+		throw runtime_error("Cannot rank a profile after removing every sample");
+	}
+	vector<PRECISIONT> retained_ranks = rankSort(retained_values.data(), retained_values.size());
+	// Preserve full-profile ranks for removed samples so they can be restored
+	// for output, while clustering uses ranks recomputed over retained samples.
+	vector<PRECISIONT> ranked = rankSort(original.data(), original.size());
+	for (size_t i = 0; i < retained_indexes.size(); ++i) {
+		ranked[retained_indexes[i]] = retained_ranks[i];
+	}
+	if (sample_data != NULL) {
+		for (int i = 0; i < num_data_samples; i++) {
+			sample_data[i] = ranked[i];
+		}
+	}
+	else {
+		sp_data.clear();
+		for (int i = 0; i < num_data_samples; i++) {
+			if (ranked[i] > static_cast<PRECISIONT>(1e-15)) {
+				sp_data[i] = ranked[i];
+			}
+		}
+	}
+	precomputed = false;
 }
 
 
@@ -351,7 +495,6 @@ void Point::pseudoRmSamples(const vector<bool> & rm, int sumRm) {
 	if (sparse) {
 		mvec::iterator  x = sp_data.begin();
 		while(x != sp_data.end() ) {
-			int idx = x->first;
 			if (rm[x->first]) {
 				sp_data_rm[x->first] = x->second;
 				x= sp_data.erase(x);
@@ -412,10 +555,18 @@ PRECISIONT Point::getDist_precomp(Point* oth) {
 		}
 
 	}
-	PRECISIONT dist = 1 - ((PRECISIONT)((double)num_data_samples * sum_XY - SumD * oth->SumD)
-		/ sqrt(StdDev * oth->StdDev));
-			//* (n * squareSum_Y - sum_Y * sum_Y)));
-	return dist;
+	const double denominator_squared = StdDev * oth->StdDev;
+	if (!(denominator_squared > 0.0) ||
+		!std::isfinite(denominator_squared)) {
+		return std::numeric_limits<PRECISIONT>::infinity();
+	}
+	double correlation = ((double)num_data_samples * sum_XY - SumD * oth->SumD) /
+		sqrt(denominator_squared);
+	if (!std::isfinite(correlation)) {
+		return std::numeric_limits<PRECISIONT>::infinity();
+	}
+	correlation = std::max(-1.0, std::min(1.0, correlation));
+	return static_cast<PRECISIONT>(1.0 - correlation);
 }
 
 
@@ -553,6 +704,9 @@ bool Point::check_if_top_three_point_proportion_is_smaller_than(PRECISIONT x){
 
     vector<PRECISIONT> temp_data_samples;
     temp_data_samples.resize(num_data_samples, 0.0);//pseudo vector, exat filling doesn't matter
+	if (temp_data_samples.empty()) {
+		return false;
+	}
 	int cnt(0);
 	if (sparse) {
 		for (auto y : sp_data){
@@ -570,10 +724,17 @@ bool Point::check_if_top_three_point_proportion_is_smaller_than(PRECISIONT x){
     //std::reverse(temp_data_samples.begin(), temp_data_samples.end());
 
     PRECISIONT sum_data_samples = std::accumulate(temp_data_samples.begin(), temp_data_samples.end(), 0.0 );
-    PRECISIONT sum_top_three = temp_data_samples[0] + temp_data_samples[1] + temp_data_samples[2]; 
+	const size_t top_count = std::min<size_t>(3, temp_data_samples.size());
+	PRECISIONT sum_top_three = std::accumulate(temp_data_samples.begin(),
+		temp_data_samples.begin() + top_count, static_cast<PRECISIONT>(0));
 
     if(sum_data_samples > std::numeric_limits<PRECISIONT>::min()){
-        return (sum_top_three / sum_data_samples) < x - std::numeric_limits<PRECISIONT>::min();
+		const PRECISIONT proportion = sum_top_three / sum_data_samples;
+		const PRECISIONT tolerance = std::numeric_limits<PRECISIONT>::epsilon() *
+			std::max(static_cast<PRECISIONT>(1), std::fabs(x));
+		// The option rejects profiles whose contribution is greater than the
+		// threshold, so equality (within floating-point precision) must pass.
+		return proportion <= x + tolerance;
     } else {
         //All samples have 0 value - can't divide by 0
         return false;
@@ -583,14 +744,36 @@ bool Point::check_if_top_three_point_proportion_is_smaller_than(PRECISIONT x){
 
 void verify_proper_point_input_or_die(const std::vector< Point*>& points,
 	const std::vector< Point*>& gp){
-    
-    //Verify all points have the same number of samples
-    int num_samples = points[0]->num_data_samples;
-	for (const Point* point : points) {
-		assert(point->num_data_samples == num_samples);
+	if (points.empty() || points[0] == NULL) {
+		_log(logERR) << "The input matrix contains no valid profiles.";
+		exit(1);
 	}
+	const int num_samples = points[0]->num_data_samples;
+	if (num_samples < 2) {
+		_log(logERR) << "At least two sample columns are required.";
+		exit(1);
+	}
+	unordered_set<string> profile_ids;
+	for (const Point* point : points) {
+		if (point == NULL || point->num_data_samples != num_samples || point->id.empty()) {
+			_log(logERR) << "Input profiles must be non-null, named, and have identical sample counts.";
+			exit(1);
+		}
+		if (!profile_ids.insert(point->id).second) {
+			_log(logERR) << "Duplicate profile ID in input matrix: " << point->id;
+			exit(1);
+		}
+	}
+	unordered_set<string> guide_ids;
 	for (const Point* point : gp) {
-		assert(point->num_data_samples == num_samples);
+		if (point == NULL || point->num_data_samples != num_samples || point->id.empty()) {
+			_log(logERR) << "Guide profiles must be non-null, named, and match the input sample count.";
+			exit(1);
+		}
+		if (!guide_ids.insert(point->id).second) {
+			_log(logERR) << "Duplicate guide profile ID: " << point->id;
+			exit(1);
+		}
 	}
 
     _log(logINFO) << "Finished reading profiles input file";
@@ -601,86 +784,60 @@ void verify_proper_point_input_or_die(const std::vector< Point*>& points,
 
 
 PRECISIONT get_partial_distance_between_points(const Point* p1, const Point* p2) {
-	// function that returns correlation coefficient. 
-	double sum_X(0); double sum_Y(0); double sum_XY(0), n(0);
-	double squareSum_X(0); double squareSum_Y(0);
+	double sum_X(0), sum_Y(0), sum_XY(0), n(0);
+	double squareSum_X(0), squareSum_Y(0);
+	const int sample_count = std::min(p1->num_data_samples, p2->num_data_samples);
 
-	bool sparse = p1->sparse;
-
-	if (!sparse) {
-		PRECISIONT* X = p1->sample_data;
-		PRECISIONT* Y = p2->sample_data;
-		for (int i = 0; i < p1->num_data_samples; i++)
-		{
-			//partial part: skip entries in Y that are absent
-			if (Y[i] == 0 && X[i] != 0) {
-				continue;
-			}
-			PRECISIONT Xi = X[i];
-			PRECISIONT Yi = Y[i];
-			// sum of elements of array X/ Y
-			sum_X += Xi;
-			sum_Y += Yi;
-			sum_XY += Xi * Yi;
-			// sum of square of array elements. 
-			squareSum_X += Xi * Xi;
-			squareSum_Y += Yi * Yi;
-			n += 1.0;
+	// A partial correlation is calculated only where the target profile (Y)
+	// is observed. Using getData keeps sparse and dense modes identical.
+	for (int i = 0; i < sample_count; i++) {
+		const PRECISIONT Yi = p2->getData(i);
+		if (Yi == 0) {
+			continue;
 		}
-	} else {
-		const mvec& v1 = p1->sp_data;
-		const mvec& v2 = p2->sp_data;
-		for (auto x : v1) {
-			auto fnd = v2.find(x.first);
-			if (fnd == v2.end()) {//v2===Yi == 0
-				continue;
-			}
-			PRECISIONT Xi = x.second;
-			PRECISIONT Yi = fnd->second;
-
-			sum_X += Xi;
-			sum_Y += Yi;
-			sum_XY += Xi * Yi;
-			// sum of square of array elements. 
-			squareSum_X += Xi * Xi;
-			squareSum_Y += Yi * Yi;
-			n += 1.0;
-		}
-	}
-	// use formula for calculating correlation coefficient. 
-	//"1-" makes a distance from corr
-	PRECISIONT dist = 1 - ((PRECISIONT)(n * sum_XY - sum_X * sum_Y)
-		/ sqrt((n * squareSum_X - sum_X * sum_X)
-			* (n * squareSum_Y - sum_Y * sum_Y)));
-	//cout << corr << " "<< n<< " "<< n * squareSum_Y - sum_Y * sum_Y<<"X ";
-
-	if (dist < 0) {
-		int x = 0;
+		const PRECISIONT Xi = p1->getData(i);
+		sum_X += Xi;
+		sum_Y += Yi;
+		sum_XY += Xi * Yi;
+		squareSum_X += Xi * Xi;
+		squareSum_Y += Yi * Yi;
+		n += 1.0;
 	}
 
-	return dist;
+	if (n < 2.0) {
+		return std::numeric_limits<PRECISIONT>::infinity();
+	}
+	const double denominator_squared = (n * squareSum_X - sum_X * sum_X) *
+		(n * squareSum_Y - sum_Y * sum_Y);
+	if (!(denominator_squared > 0.0) ||
+		!std::isfinite(denominator_squared)) {
+		return std::numeric_limits<PRECISIONT>::infinity();
+	}
+	double correlation = (n * sum_XY - sum_X * sum_Y) / sqrt(denominator_squared);
+	if (!std::isfinite(correlation)) {
+		return std::numeric_limits<PRECISIONT>::infinity();
+	}
+	correlation = std::max(-1.0, std::min(1.0, correlation));
+	return static_cast<PRECISIONT>(1.0 - correlation);
 }
-
-
-
-smplCor get_distance_between_umaps_v( vector<mvec2>& vs,
-	uint i, int nmSmpls) {
+smplCor get_distance_between_umaps_v(vector<mvec2>& vs,
+	uint i, int nmSmpls, int num_observations) {
 	smplCor ret;
 	for (int k = i + 1; k < nmSmpls; k++) {
 		ret.i.push_back(i);
 		ret.k.push_back(k);
-		PRECISIONT dd = get_distance_between_umaps(vs[i], vs[k]);
+		PRECISIONT dd = get_distance_between_umaps(vs[i], vs[k], num_observations);
 		ret.dist.push_back(dd);
 	}
 	return ret;
 }
 
 PRECISIONT get_distance_between_umaps(const mvec2& v1,
-	const mvec2& v2) {
+	const mvec2& v2, int num_observations) {
 	// function that returns correlation coefficient. 
 	double sum_X(0); double sum_Y(0); double sum_XY(0);
 	double squareSum_X(0); double squareSum_Y(0);
-	double n = v1.size() + v2.size();
+	const double n = static_cast<double>(num_observations);
 	auto v2end = v2.end();
 	for (auto x : v1) {
 		PRECISIONT Xi = x.second;
@@ -691,7 +848,6 @@ PRECISIONT get_distance_between_umaps(const mvec2& v1,
 		if (fnd == v2end) {//v2===Yi == 0
 			continue;
 		}
-		n--;
 		PRECISIONT Yi = fnd->second;
 
 		sum_Y += Yi;
@@ -710,14 +866,18 @@ PRECISIONT get_distance_between_umaps(const mvec2& v1,
 		squareSum_Y += Yi * Yi;
 	}
 	
-	// use formula for calculating correlation coefficient. 
-	//"1-" makes a distance from corr
-	PRECISIONT dist = ((PRECISIONT)(n * sum_XY - sum_X * sum_Y  )
-		/ sqrt((n * squareSum_X - sum_X * sum_X)
-			* (n * squareSum_Y - sum_Y * sum_Y)));
-	//cout << corr << " "<< n<< " "<< n * squareSum_Y - sum_Y * sum_Y<<"X ";
-	dist = 1 - dist;
-	return dist;
+	const double denominator_squared = (n * squareSum_X - sum_X * sum_X) *
+		(n * squareSum_Y - sum_Y * sum_Y);
+	if (n < 2.0 || !(denominator_squared > 0.0) ||
+		!std::isfinite(denominator_squared)) {
+		return std::numeric_limits<PRECISIONT>::infinity();
+	}
+	double correlation = (n * sum_XY - sum_X * sum_Y) / sqrt(denominator_squared);
+	if (!std::isfinite(correlation)) {
+		return std::numeric_limits<PRECISIONT>::infinity();
+	}
+	correlation = std::max(-1.0, std::min(1.0, correlation));
+	return static_cast<PRECISIONT>(1.0 - correlation);
 }
 
 
@@ -746,29 +906,37 @@ PRECISIONT get_distance_between_points(Point* p1, Point* p2) {
     return dist; 
 }
 
-Point* get_centroid_of_points(const std::vector< Point*>& points,int deletedSmpls){
+std::unique_ptr<Point> get_centroid_of_points(
+	const std::vector<Point*>& points, int deletedSmpls) {
 
     assert(points.size());
 
-	Point* centroid = new Point(points[0], deletedSmpls);
+	std::unique_ptr<Point> centroid(new Point(points[0], 0));
     centroid->id = "!GENERATED!";
+	centroid->precomputed = false;
+	centroid->sp_data.clear();
+	centroid->sp_data_rm.clear();
 
     const int num_samples = points[0]->num_data_samples;
+	const int original_sample_count = num_samples + deletedSmpls;
+	if (!points[0]->sparse && deletedSmpls != 0) {
+		throw runtime_error("Removed-sample restoration is only supported for sparse profiles");
+	}
     const int num_points = points.size();
 	double num_points_d = (PRECISIONT)num_points;
 	
-	bool sparse = points[0]->sparse;
-
-
 	//Number which multiplied with length of the vector
  //will give us the element corresponding to the percentile
 	PRECISIONT percentile_multiplier = -1;
 
 	//The reason for the ignore here is that when profile_measure is MEAN then code above is ececuted (which is much faster)
 	//The value below will thus never be equal to MEAN
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wswitch"
 	switch (profile_measure) {
+	case MEAN:
+		// The indices are unused by getMedian for means, but a valid value keeps
+		// assertion-enabled and release builds on the same control path.
+		percentile_multiplier = 0;
+		break;
 	case MEDIAN:
 		percentile_multiplier = 0.5;
 		break;
@@ -788,7 +956,6 @@ Point* get_centroid_of_points(const std::vector< Point*>& points,int deletedSmpl
 		percentile_multiplier = 0.95;
 		break;
 	}
-#pragma clang diagnostic pop
 	//make correction for counting from 0
 	 //so median in vector of length 5 would be (5 - 1)*0.5 = 2
 	PRECISIONT target_element_i = (num_points - 1)*percentile_multiplier; //We cannot use it since it might (and usually will be) a float like 2.25
@@ -803,14 +970,20 @@ Point* get_centroid_of_points(const std::vector< Point*>& points,int deletedSmpl
     //_log(logDEBUG4) << "num samples: " << num_samples;
 
 	std::vector<PRECISIONT> point_samples(num_points, 0);
-	for (int i = 0; i < num_samples + deletedSmpls; i++) {
+	for (int i = 0; i < original_sample_count; i++) {
 		PRECISIONT percentile = getMedian(points, point_samples, lower_element_i,
 			upper_element_i, num_points, i, lower_to_upper_proportion, num_points_d, true);
-		centroid->sample_data[i] = percentile;
+		if (centroid->sparse) {
+			if (percentile > static_cast<PRECISIONT>(1e-15)) {
+				centroid->sp_data[i] = percentile;
+			}
+		}
+		else {
+			centroid->sample_data[i] = percentile;
+		}
 	}
-	centroid->seal();
 //also take care of eventually deleted points
-	for (int i = 0; i < num_samples + deletedSmpls; i++) {
+	for (int i = 0; i < original_sample_count; i++) {
 		PRECISIONT percentile = getMedian(points, point_samples, lower_element_i,
 			upper_element_i, num_points, i, lower_to_upper_proportion, num_points_d, false);
 		if (percentile > 0) {
@@ -858,7 +1031,8 @@ PRECISIONT getMedian(const vector<Point*>& points, vector<PRECISIONT>& point_sam
 	}
 	PRECISIONT percentile(0);
 	if (profile_measure == MEAN) {
-		PRECISIONT sum = std::accumulate(point_samples.begin(), point_samples.end(), 0);
+		PRECISIONT sum = std::accumulate(point_samples.begin(), point_samples.end(),
+			static_cast<PRECISIONT>(0));
 		percentile = sum / num_points_d;
 
 	}
@@ -878,8 +1052,8 @@ std::ostream& operator<<(std::ostream& ost, const Point& p)
 {
         ost << "============================" << std::endl;
         ost << "Point: " << p.id << std::endl;
-        for(int i=0; i < p.num_data_samples; i++){
-            ost << p.sample_data[i] << "\t" ;
+		for(int i=0; i < p.num_data_samples; i++){
+			ost << p.getData(i) << "\t" ;
         }
         ost << std::endl;
         ost << "============================" << std::endl;
